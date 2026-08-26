@@ -52,11 +52,6 @@ namespace EnderPearl.Backend
 		private bool kickIntercepted;
 		private uint backendInputLockData;
 		/// <summary>Packs being assembled from bytes on their way to the client; see CaptureBackendPackBytes.</summary>
-		private readonly Dictionary<Guid, ObservedPack> observedPacks = new();
-		/// <summary>Non-null only while this backend's packs are being downloaded during a switch.</summary>
-		private volatile BackendPackFetch? packFetch;
-		/// <summary>Holds the deadline timer alive until it fires; an unreferenced Timer can be collected.</summary>
-		private readonly List<System.Threading.Timer> packFetchTimers = new();
 
 		public BackendRelayPacketHandler(
 			ProxyConnection connection,
@@ -128,24 +123,7 @@ namespace EnderPearl.Backend
 			{
 				return PacketSignal.Handled;
 			}
-			// A pack the client is downloading passes through here in full, so learning it costs nothing
-			// beyond the copy — no extra request, no extra traffic.
-			CaptureBackendPackBytes(packet);
-			// Proxy resource pack injection: merge the proxy's packs into the single info+stack the
-			// client sees.
-			if (!connection.ProxyResourcePackRegistry.IsEmpty())
-			{
-				if (packet is ResourcePacksInfoPacket backendInfo)
-				{
-					HandleMergedResourcePacksInfo(backendInfo);
-					return PacketSignal.Handled;
-				}
-				if (packet is ResourcePackStackPacket backendStack)
-				{
-					HandleMergedResourcePackStack(backendStack);
-					return PacketSignal.Handled;
-				}
-			}
+			
 			long traceSequence = -1;
 			if (connection.IsPacketTraceActive())
 			{

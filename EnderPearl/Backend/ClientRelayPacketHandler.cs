@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Text;
 using EnderPearl.Command;
 using EnderPearl.Net;
-using EnderPearl.Resource;
 using global::Protocol.Packets;
 using global::Protocol.Types;
 using ResourcePackClientResponsePacketPayload = global::Protocol.Types.ResourcePackClientResponsePacketPayload;
@@ -156,28 +155,7 @@ namespace EnderPearl.Backend
 				return PacketSignal.Handled;
 			}
 
-			// Proxy resource pack serving during the resource pack negotiation phase.
-			ProxyResourcePackRegistry registry = connection.ProxyResourcePackRegistry;
-			if (!registry.IsEmpty())
-			{
-				// Serve proxy pack chunks directly from the proxy.
-				if (packet is ResourcePackChunkRequestPacket chunkRequest)
-				{
-					Guid? requestedPackUuid = ExtractPackUuid(chunkRequest.ResourceName);
-					if (requestedPackUuid.HasValue && registry.IsProxyPack(requestedPackUuid.Value))
-					{
-						registry.SendChunk(connection.Client(), requestedPackUuid.Value, chunkRequest.Chunk);
-						return PacketSignal.Handled;
-					}
-				}
-				// Filter proxy pack IDs out of send_packs before forwarding to backend. Protocol 2168
-				// folds Java's SEND_PACKS status into Downloading (the payload carries the pack list).
-				if (packet is ResourcePackClientResponsePacket response
-						&& response.Response.Index == 1)
-				{
-					return HandleSendPacksWithProxyFilter(response, registry, traceSequence);
-				}
-			}
+			
 
 			if (packet is CommandRequestPacket commandRequest)
 			{
@@ -280,49 +258,7 @@ namespace EnderPearl.Backend
 			return pendingBackend;
 		}
 
-		private PacketSignal HandleSendPacksWithProxyFilter(
-			ResourcePackClientResponsePacket response,
-			ProxyResourcePackRegistry registry,
-			long traceSequence
-		)
-		{
-			if (response.Response.Index == 1 && response.Response.Value is ResourcePackClientResponsePacketPayload.Downloading payload)
-			{
-				List<string> originalPackIds = payload.DownloadingPacks ?? new List<string>();
-				var backendPackIds = new List<string>();
-				foreach (string packId in originalPackIds)
-				{
-					Guid? uuid = ExtractPackUuid(packId);
-					if (uuid.HasValue && registry.IsProxyPack(uuid.Value))
-					{
-						// Send DataInfo for this proxy pack directly to the client.
-						registry.SendDataInfo(connection.Client(), uuid.Value);
-					}
-					else
-					{
-						backendPackIds.Add(packId);
-					}
-				}
-				if (backendPackIds.Count > 0)
-				{
-					// Forward only the backend pack IDs to the backend. The list is rewritten in place:
-					// this packet instance is not used anywhere else once forwarded.
-					if (backendPackIds.Count != originalPackIds.Count)
-					{
-						originalPackIds.Clear();
-						originalPackIds.AddRange(backendPackIds);
-					}
-					SendToBackend(connection.Backend(), response, traceSequence);
-				}
-				// If the list contained only proxy pack IDs, nothing is forwarded; the backend waits
-				// until the client sends have_all_packs (after downloading the proxy packs).
-				return PacketSignal.Handled;
-			}
-			// Unreachable through this codec's decoder (ResponseType and the OneOf discriminant are the
-			// same byte); fall back to forwarding unchanged rather than dropping a handshake packet.
-			SendToBackend(connection.Backend(), response, traceSequence);
-			return PacketSignal.Handled;
-		}
+	
 
 		private static Guid? ExtractPackUuid(string packId)
 		{

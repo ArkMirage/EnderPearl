@@ -12,8 +12,6 @@ using EnderPearl.Net;
 using EnderPearl.Network;
 using EnderPearl.Permission;
 using EnderPearl.Protocol;
-
-using EnderPearl.Resource;
 using EnderPearl.Security;
 using EnderPearl.Session;
 using RakNet;
@@ -45,7 +43,6 @@ namespace EnderPearl.Listener
 		private ProxyConsole? console;
 		private RakNet.Listener? listener;
 		private Palette.BackendPaletteStore backendPaletteStore = Palette.BackendPaletteStore.Disabled();
-		private BackendPackCache backendPackCache = BackendPackCache.Disabled();
 		private volatile bool shuttingDown;
 
 		public BedrockProxyListener(ProxyConfig config, ProxyPermissions permissions, MojangMimicIdentity? mimicIdentity)
@@ -67,16 +64,6 @@ namespace EnderPearl.Listener
 				config.Backend.Name,
 				config.HubBackendName
 			);
-			ProxyResourcePackRegistry resourcePackRegistry = config.CacheBackendPacks
-				? ProxyResourcePackRegistry.Load(config.ResourcePacksDir, config.BackendPackCacheDir)
-				: ProxyResourcePackRegistry.Load(config.ResourcePacksDir);
-			backendPackCache = config.CacheBackendPacks
-				? BackendPackCache.Of(config.BackendPackCacheDir!, resourcePackRegistry)
-				: BackendPackCache.Disabled();
-			if (!resourcePackRegistry.IsEmpty())
-			{
-				Logger.Info($"Proxy resource pack registry: {resourcePackRegistry.Packs().Count} pack(s) loaded.");
-			}
 			backendPaletteStore = config.CrossBackendPalette
 				? Palette.BackendPaletteStore.Load(config.CrossBackendPaletteCacheFile)
 				: Palette.BackendPaletteStore.Disabled();
@@ -132,7 +119,7 @@ namespace EnderPearl.Listener
 
 			listener = BindListener(listen,security);
 
-			StartAcceptLoop(listener!, backendConnector, onlineLoginForge, resourcePackRegistry, security);
+			StartAcceptLoop(listener!, backendConnector, onlineLoginForge, security);
 
 			Logger.Info(
 				$"Security: connectionCookie={(security.SendConnectionCookie ? "on" : "OFF")} maxConnectionsPerAddress={security.MaxConnectionsPerAddress} "
@@ -202,7 +189,6 @@ namespace EnderPearl.Listener
 			RakNet.Listener rakListener,
 			BackendConnector backendConnector,
 			OnlineLoginForge onlineLoginForge,
-			ProxyResourcePackRegistry resourcePackRegistry,
 			SecurityConfig security
 		)
 		{
@@ -226,7 +212,7 @@ namespace EnderPearl.Listener
 					}
 					try
 					{
-						AcceptConnection(conn, backendConnector, onlineLoginForge, resourcePackRegistry, security);
+						AcceptConnection(conn, backendConnector, onlineLoginForge, security);
 					}
 					catch (Exception exception)
 					{
@@ -247,7 +233,6 @@ namespace EnderPearl.Listener
 			RakNet.Conn conn,
 			BackendConnector backendConnector,
 			OnlineLoginForge onlineLoginForge,
-			ProxyResourcePackRegistry resourcePackRegistry,
 			SecurityConfig security
 		)
 		{
@@ -287,9 +272,7 @@ namespace EnderPearl.Listener
 				onlineLoginForge,
 				connectedPlayers,
 				OnPlayerRosterChanged,
-				resourcePackRegistry,
-				backendPaletteStore,
-				backendPackCache
+				backendPaletteStore
 			));
 			// Handler first, read loop second - Java's initSession ordering. Starting the loop before
 			// the handler existed silently dropped a client's earliest packets.

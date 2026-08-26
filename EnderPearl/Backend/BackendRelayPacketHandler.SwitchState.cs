@@ -3,7 +3,6 @@ using EnderPearl.Logging;
 using System.Collections.Generic;
 using System.Threading;
 using EnderPearl.Net;
-using EnderPearl.Resource;
 using global::Protocol.Packets;
 using ResourcePackClientResponsePayload = global::Protocol.Types.ResourcePackClientResponsePacketPayload;
 
@@ -301,44 +300,8 @@ namespace EnderPearl.Backend
 
 		private bool AcknowledgePendingSwitchLoginPacket(IPacket packet)
 		{
-			if (packFetch != null && !packFetch.IsFinished() && packFetch.Handle(packet))
-			{
-				return true;
-			}
 			if (packet is ResourcePacksInfoPacket packsInfo)
 			{
-				// Protocol 2168 folds behaviour packs into the single ResourcePacks list, so the
-				// Java resource+behaviour count pair becomes one count here.
-				int packCount = packsInfo.ResourcePacks?.Count ?? 0;
-				if (packCount > 0)
-				{
-					if (connection.IsPacketTraceActive())
-					{
-						Logger.Info(
-							$"Acknowledging {packCount} resource packs for pending backend {backendName} during switch.");
-					}
-					WarnAboutUnservedSwitchPacks(packsInfo);
-				}
-				else if (connection.IsPacketTraceActive())
-				{
-					Logger.Info($"Acknowledging empty resource-pack info for pending backend {backendName} during switch.");
-				}
-				// The one moment this backend's packs can be obtained: nobody else will ever ask it for
-				// them, because a client only downloads packs during its own login.
-				BackendPackFetch? fetch = BackendPackFetch.Start(
-					connection.BackendPackCache,
-					backendName,
-					packsInfo,
-					sent => backend.SendPacket(sent),
-					() => SendPackResponse(global::Protocol.ResourcePackResponse.DownloadingFinished)
-				);
-				if (fetch != null)
-				{
-					packFetch = fetch;
-					SchedulePackFetchDeadline(fetch);
-					return true;
-				}
-				// ResourcePackClientResponsePacket.Status.HAVE_ALL_PACKS.
 				SendPackResponse(global::Protocol.ResourcePackResponse.DownloadingFinished);
 				return true;
 			}
@@ -355,128 +318,8 @@ namespace EnderPearl.Backend
 			return false;
 		}
 
-		/// <summary>
-		/// Warns when a backend joined mid-session advertises packs the proxy is not serving itself.
-		///
-		/// <p>Bedrock runs the resource-pack handshake exactly once, before StartGame. A client already
-		/// in a world cannot be made to fetch and apply a new pack stack, so on a switch the proxy has
-		/// to answer that handshake on the client's behalf - the packs are acknowledged to the backend
-		/// and the client never sees them. If those packs are also in <c>resourcePacks.dir</c> the
-		/// client already downloaded and applied them at login and everything renders; if they are not,
-		/// the player gets the backend's custom content with no client-side definitions: custom
-		/// entities render as nothing (still solid and clickable) and custom items fall back to
-		/// arbitrary vanilla textures.</p>
-		///
-		/// <p>That failure is otherwise completely silent - no kick, no error, just wrong visuals - so
-		/// name the specific packs that need copying into <c>resourcePacks.dir</c>.</p>
-		/// </summary>
-		private void WarnAboutUnservedSwitchPacks(ResourcePacksInfoPacket packsInfo)
-		{
-			ProxyResourcePackRegistry registry = connection.ProxyResourcePackRegistry;
-			List<string> unserved = new List<string>();
-			foreach (global::Protocol.Types.PackInfoData entry in packsInfo.ResourcePacks)
-			{
-				Guid? packUuid = PackUuidOf(entry.PackIdVersion?.PackUUID);
-				if (packUuid == null || !registry.IsProxyPack(packUuid.Value))
-				{
-					unserved.Add($"{packUuid?.ToString() ?? "null"} v{entry.PackIdVersion?.PackVersion?.Version}");
-				}
-			}
-			if (unserved.Count == 0)
-			{
-				return;
-			}
-			Logger.Info(
-				$"WARNING: backend {backendName} uses {unserved.Count} resource pack(s) the proxy does not serve, and a switched "
-					+ $"client cannot be asked to download them: {string.Join(", ", unserved)}. Custom entities will be invisible and "
-					+ $"custom items will show wrong textures on this backend. Copy these packs into "
-					+ $"resourcePacks.dir so every client gets them at login."
-			);
-		}
+	
 
-		/// <summary>
-		/// Keeps a copy of a pack the client is downloading from the backend, so the next player gets it
-		/// from the proxy — including on backends they reach by switching, where no client can download
-		/// anything.
-		///
-		/// <para>Pure observation: the packets carry on to the client untouched. A client that already has
-		/// the pack in its own cache never requests it, so nothing is learned from that join; the switch
-		/// path (<see cref="BackendPackFetch"/>) is what guarantees a backend is eventually learned.</para>
-		/// </summary>
-		private void CaptureBackendPackBytes(IPacket packet)
-		{
-			BackendPackCache cache = connection.BackendPackCache;
-			if (!cache.IsEnabled())
-			{
-				return;
-			}
-			if (packet is ResourcePackDataInfoPacket dataInfo)
-			{
-				if (!TryParsePackIdAndVersion(dataInfo.ResourceName, out Guid dataId, out int[] version))
-				{
-					return;
-				}
-				observedPacks.Remove(dataId);
-				long size = (long)dataInfo.FileSize;
-				if (size <= 0 || size > BackendPackCache.MAX_PACK_BYTES || cache.Has(dataId, version))
-				{
-					return;
-				}
-				observedPacks[dataId] = new ObservedPack(
-					new byte[size], dataInfo.FileHash, Math.Max(1u, dataInfo.ChunkSize));
-				return;
-			}
-			if (!(packet is ResourcePackChunkDataPacket chunkData))
-			{
-				return;
-			}
-			// The wire id is "uuid" or "uuid_version" - UUIDs themselves use hyphens, not underscores.
-			string chunkIdPart = chunkData.ResourceName;
-			int underscore = chunkIdPart.IndexOf('_');
-			string chunkUuidPart = underscore >= 0 ? chunkIdPart.Substring(0, underscore) : chunkIdPart;
-			if (!Guid.TryParseExact(chunkUuidPart, "D", out Guid chunkId)
-				|| !observedPacks.TryGetValue(chunkId, out ObservedPack? observed))
-			{
-				return;
-			}
-			byte[]? data = chunkData.ChunkData;
-			long offsetLong = Math.Min(observed.Buffer.Length, (long)chunkData.ChunkID * observed.ChunkSize);
-			int offset = (int)Math.Max(0, Math.Min(offsetLong, int.MaxValue));
-			int length = data == null ? 0 : Math.Min(data.Length, observed.Buffer.Length - offset);
-			if (length > 0 && offset < observed.Buffer.Length)
-			{
-				// Copy: this buffer is on its way to the client and must not be moved.
-				Buffer.BlockCopy(data, 0, observed.Buffer, offset, length);
-				observed.Filled += length;
-			}
-			if (observed.Filled >= observed.Buffer.Length)
-			{
-				observedPacks.Remove(chunkId);
-				cache.Store(chunkId, observed.Buffer, observed.Hash);
-			}
-		}
-
-		private static bool TryParsePackIdAndVersion(string resourceName, out Guid packId, out int[] version)
-		{
-			// The wire id is "uuid_version"; Java split it into getPackId()+getPackVersion().
-			packId = Guid.Empty;
-			version = ProxyResourcePackRegistry.ParseVersion(null);
-			if (string.IsNullOrEmpty(resourceName))
-			{
-				return false;
-			}
-			int underscore = resourceName.IndexOf('_');
-			string uuidPart = underscore >= 0 ? resourceName.Substring(0, underscore) : resourceName;
-			if (!Guid.TryParseExact(uuidPart, "D", out packId))
-			{
-				return false;
-			}
-			if (underscore >= 0)
-			{
-				version = ProxyResourcePackRegistry.ParseVersion(resourceName.Substring(underscore + 1));
-			}
-			return true;
-		}
 
 		private sealed class ObservedPack
 		{
@@ -493,32 +336,7 @@ namespace EnderPearl.Backend
 			}
 		}
 
-		/// <summary>
-		/// Bounds the pack download in time. The player switching is waiting on it, so a backend that
-		/// stops answering must not hold them there: the fetch is dropped and the handshake completes with
-		/// the packs still unlearned, which is exactly the state the proxy was in before it tried.
-		/// </summary>
-		private void SchedulePackFetchDeadline(BackendPackFetch fetch)
-		{
-			var timer = new System.Threading.Timer(_ =>
-			{
-				try
-				{
-					if (!fetch.IsFinished())
-					{
-						fetch.Abandon("the backend stopped sending after " + PACK_FETCH_TIMEOUT_MILLIS + "ms");
-					}
-				}
-				catch (Exception e)
-				{
-					Logger.Error($"pack fetch deadline callback failed: {e}");
-				}
-			}, null, TimeSpan.FromMilliseconds(PACK_FETCH_TIMEOUT_MILLIS), Timeout.InfiniteTimeSpan);
-			lock (packFetchTimers)
-			{
-				packFetchTimers.Add(timer);
-			}
-		}
+	
 
 		/// <summary>
 		/// This codec splits the Cloudburst Status enum into a wire discriminant
@@ -575,27 +393,7 @@ namespace EnderPearl.Backend
 			backend.SendPacket(response);
 		}
 
-		private void HandleMergedResourcePacksInfo(ResourcePacksInfoPacket backendInfo)
-		{
-			ProxyResourcePackRegistry registry = connection.ProxyResourcePackRegistry;
-			ResourcePacksInfoPacket merged = registry.BuildMergedInfo(backendInfo);
-			// Deliberately silent. The merge runs on every join and always did the same thing, so the
-			// line said nothing an operator could act on. The pack problem that *is* worth reporting -
-			// a backend serving packs the proxy does not have - still warns, from warnAboutUnservedSwitchPacks.
-			// Forward merged info to client; client responses flow back through ClientRelayPacketHandler.
-			// Proxy pack chunks are served locally there; backend pack chunks are forwarded to backend.
-			connection.Client().SendPacket(merged);
-		}
-
-		private void HandleMergedResourcePackStack(ResourcePackStackPacket backendStack)
-		{
-			ProxyResourcePackRegistry registry = connection.ProxyResourcePackRegistry;
-			ResourcePackStackPacket merged = registry.BuildMergedStack(backendStack);
-			// Silent for the same reason as HandleMergedResourcePacksInfo above.
-			// Send merged stack to client; the client's COMPLETED response will flow normally
-			// through ClientRelayPacketHandler to the backend.
-			connection.Client().SendPacket(merged);
-		}
+	
 
 		private void SendSwitchWorldReadyPackets(StartGamePacket startGame, int sourceDimension)
 		{

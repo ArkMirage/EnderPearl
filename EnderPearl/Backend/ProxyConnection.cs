@@ -8,7 +8,6 @@ using EnderPearl.Config;
 using EnderPearl.Crypto;
 using EnderPearl.Listener;
 using EnderPearl.Palette;
-using EnderPearl.Resource;
 using EnderPearl.Session;
 using global::Protocol.Packets;
 using global::Protocol.Types;
@@ -49,8 +48,6 @@ namespace EnderPearl.Backend
 		private readonly ClientLogin clientLogin;
 		private readonly ECDsaHolder keyPair;
 		private LoginPacket backendLogin;
-		private readonly ProxyResourcePackRegistry proxyResourcePackRegistry;
-		private readonly BackendPackCache backendPackCache;
 		private readonly CrossBackendPalette crossBackendPalette;
 		private bool? clientBlockIdsHashed;
 		private readonly ClientWorldState clientWorldState = new();
@@ -93,10 +90,9 @@ namespace EnderPearl.Backend
 			ProxySessionProfile sessionProfile,
 			ClientLogin clientLogin,
 			ECDsaHolder keyPair,
-			LoginPacket backendLogin,
-			ProxyResourcePackRegistry proxyResourcePackRegistry
+			LoginPacket backendLogin
 		)
-			: this(client, sessionProfile, clientLogin, keyPair, backendLogin, proxyResourcePackRegistry, null)
+			: this(client, sessionProfile, clientLogin, keyPair, backendLogin, null)
 		{
 		}
 
@@ -106,23 +102,8 @@ namespace EnderPearl.Backend
 			ClientLogin clientLogin,
 			ECDsaHolder keyPair,
 			LoginPacket backendLogin,
-			ProxyResourcePackRegistry proxyResourcePackRegistry,
+	
 			BackendPaletteStore? backendPaletteStore
-		)
-			: this(client, sessionProfile, clientLogin, keyPair, backendLogin, proxyResourcePackRegistry,
-				backendPaletteStore, null)
-		{
-		}
-
-		public ProxyConnection(
-			ListenerSession client,
-			ProxySessionProfile sessionProfile,
-			ClientLogin clientLogin,
-			ECDsaHolder keyPair,
-			LoginPacket backendLogin,
-			ProxyResourcePackRegistry proxyResourcePackRegistry,
-			BackendPaletteStore? backendPaletteStore,
-			BackendPackCache? backendPackCache
 		)
 		{
 			this.client = client ?? throw new ArgumentNullException(nameof(client));
@@ -130,9 +111,7 @@ namespace EnderPearl.Backend
 			this.clientLogin = clientLogin;
 			this.keyPair = keyPair;
 			this.backendLogin = backendLogin;
-			this.proxyResourcePackRegistry = proxyResourcePackRegistry ?? ProxyResourcePackRegistry.Empty();
 			this.crossBackendPalette = new CrossBackendPalette(backendPaletteStore);
-			this.backendPackCache = backendPackCache ?? BackendPackCache.Disabled();
 		}
 
 		public ListenerSession Client() => client;
@@ -220,15 +199,6 @@ namespace EnderPearl.Backend
 				backendLogin = login;
 			}
 		}
-
-		public ProxyResourcePackRegistry ProxyResourcePackRegistry => proxyResourcePackRegistry;
-
-		/// <summary>
-		/// Where backend packs seen on this connection are kept. Shared by every connection: a pack
-		/// learned from one player is served to all of them.
-		/// </summary>
-		public BackendPackCache BackendPackCache => backendPackCache;
-
 		/// <summary>
 		/// This player's cross-backend item and entity registries. Decided at login and unchangeable
 		/// afterwards, because that is when Bedrock reads them; see <see cref="CrossBackendPalette"/>.

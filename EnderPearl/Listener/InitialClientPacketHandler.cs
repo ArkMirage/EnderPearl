@@ -8,7 +8,6 @@ using EnderPearl.Net;
 using EnderPearl.Network;
 using EnderPearl.Protocol;
 
-using EnderPearl.Resource;
 using EnderPearl.Session;
 using global::Protocol.Codec.Connection.Encryption;
 using global::Protocol.Packets;
@@ -29,9 +28,7 @@ namespace EnderPearl.Listener
 		private readonly OnlineLoginForge onlineLoginForge;
 		private readonly ConnectedPlayerRegistry connectedPlayers;
 		private readonly Action playerCountChanged;
-		private readonly ProxyResourcePackRegistry proxyResourcePackRegistry;
 		private readonly Palette.BackendPaletteStore backendPaletteStore;
-		private readonly BackendPackCache backendPackCache;
 		private byte[]? clientEncryptionKey;
 		private ProxyConnection? connection;
 		private int joinStarted;
@@ -44,9 +41,9 @@ namespace EnderPearl.Listener
 			OnlineLoginForge onlineLoginForge,
 			ConnectedPlayerRegistry connectedPlayers,
 			Action playerCountChanged,
-			ProxyResourcePackRegistry proxyResourcePackRegistry,
-			Palette.BackendPaletteStore? backendPaletteStore,
-			BackendPackCache? backendPackCache
+
+			Palette.BackendPaletteStore? backendPaletteStore
+
 		)
 		{
 			this.session = session;
@@ -56,9 +53,9 @@ namespace EnderPearl.Listener
 			this.onlineLoginForge = onlineLoginForge;
 			this.connectedPlayers = connectedPlayers;
 			this.playerCountChanged = playerCountChanged;
-			this.proxyResourcePackRegistry = proxyResourcePackRegistry ?? ProxyResourcePackRegistry.Empty();
+		
 			this.backendPaletteStore = backendPaletteStore ?? Palette.BackendPaletteStore.Disabled();
-			this.backendPackCache = backendPackCache ?? BackendPackCache.Disabled();
+
 		}
 
 		public PacketSignal Handle(IPacket packet)
@@ -135,9 +132,9 @@ namespace EnderPearl.Listener
 					clientLogin,
 					keyPair,
 					onlineLoginForge.Forge(keyPair, clientLogin),
-					proxyResourcePackRegistry,
-					backendPaletteStore,
-					backendPackCache
+
+					backendPaletteStore
+
 				);
 
 				RegistrationResult registration = connectedPlayers.Register(connection);
