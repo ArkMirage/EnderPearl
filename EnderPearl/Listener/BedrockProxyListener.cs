@@ -130,7 +130,7 @@ namespace EnderPearl.Listener
 			backendConnector.SetNetworkCommands(networkCommands);
 			SecurityConfig security = config.Security;
 
-			listener = BindListener(listen, backendConnector, onlineLoginForge, resourcePackRegistry, security);
+			listener = BindListener(listen,security);
 
 			StartAcceptLoop(listener!, backendConnector, onlineLoginForge, resourcePackRegistry, security);
 
@@ -183,9 +183,6 @@ namespace EnderPearl.Listener
 
 		private RakNet.Listener BindListener(
 			IPEndPoint address,
-			BackendConnector backendConnector,
-			OnlineLoginForge onlineLoginForge,
-			ProxyResourcePackRegistry resourcePackRegistry,
 			SecurityConfig security
 		)
 		{

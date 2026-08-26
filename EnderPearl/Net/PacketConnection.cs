@@ -296,7 +296,6 @@ namespace EnderPearl.Net
 
 		protected virtual void OnTransportClosed()
 		{
-			// Java's BedrockPacketHandler.onDisconnect default method: notify the current handler.
 			if (handler is IDisconnectNotifier notifier)
 			{
 				try
