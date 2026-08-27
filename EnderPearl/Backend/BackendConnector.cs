@@ -9,7 +9,6 @@ using EnderPearl.Config;
 using EnderPearl.Diagnostics;
 using EnderPearl.Crypto;
 using EnderPearl.Crypto;
-using EnderPearl.Palette;
 using EnderPearl.Protocol;
 using EnderPearl.Session;
 using global::Protocol.Packets;
@@ -35,7 +34,6 @@ namespace EnderPearl.Backend
 		private readonly ConnectedPlayerRegistry connectedPlayers;
 		private readonly ProxyPermissions permissions;
 		private readonly ProxyPlayerEnum playerEnum;
-		private readonly BackendPaletteStore? paletteStore;
 		private readonly string publicAddress;
 		private readonly int listenPort;
 		private readonly MojangMimicIdentity? mimicIdentity;
@@ -62,7 +60,7 @@ namespace EnderPearl.Backend
 		)
 			: this(backendDirectory, commandRegistry, mimicIdentity, protocolRegistry, backendProtocolOverride,
 				onlineLoginForge, verifiedXuidLookup, policy, connectedPlayers,
-				permissions, playerEnum, null, "", DEFAULT_LISTEN_PORT)
+				permissions, playerEnum, "", DEFAULT_LISTEN_PORT)
 		{
 		}
 
@@ -80,13 +78,11 @@ namespace EnderPearl.Backend
 			ConnectedPlayerRegistry connectedPlayers,
 			ProxyPermissions permissions,
 			ProxyPlayerEnum playerEnum,
-			BackendPaletteStore? paletteStore,
 			string? publicAddress,
 			int listenPort
 		)
 		{
 			this.mimicIdentity = mimicIdentity;
-			this.paletteStore = paletteStore;
 			this.publicAddress = publicAddress == null ? "" : publicAddress.Trim();
 			this.listenPort = listenPort;
 			this.backendDirectory = backendDirectory;
@@ -123,7 +119,7 @@ namespace EnderPearl.Backend
 		public bool NeedsReconnectToReach(ProxyConnection connection, BackendConfig backend)
 		{
 			bool? clientHashed = connection.ClientBlockIdsHashed();
-			bool? backendHashed = paletteStore == null ? null : paletteStore.BlockIdsHashed(backend.Name);
+			bool? backendHashed = BackendBlockSchemes.IsHashed(backend.Name);
 			return clientHashed != null && backendHashed != null && clientHashed != backendHashed;
 		}
 
@@ -184,7 +180,7 @@ namespace EnderPearl.Backend
 		/// <summary>False while the backend has never been seen, so the config key remains the way to say so.</summary>
 		private bool DoesNotImplementSubChunks(BackendConfig backend)
 		{
-			bool? hashed = paletteStore == null ? null : paletteStore.BlockIdsHashed(backend.Name);
+			bool? hashed = BackendBlockSchemes.IsHashed(backend.Name);
 			return hashed != null && !hashed.Value;
 		}
 

@@ -137,9 +137,13 @@ namespace EnderPearl.Backend
 			{
 				ClearPreviousClientWorldState();
 			}
-			if (connection.CrossBackendPalette.IsEnabled() && HandleCrossBackendPalette(packet, traceSequence))
+			if (packet is StartGamePacket schemeStartGame)
 			{
-				return PacketSignal.Handled;
+				// The client keeps whichever scheme its first StartGame carried - a session fact that
+				// decides how they can be moved from now on; the per-backend half feeds scheme-aware
+				// reconnect routing.
+				connection.RememberClientBlockIdsHashed(schemeStartGame.BlockNetworkIdsAreHashes);
+				BackendBlockSchemes.Remember(backendName, schemeStartGame.BlockNetworkIdsAreHashes);
 			}
 			SyncDefinitionState(packet);
 			// Single-version build: client and backend codecs are identical, so there is no

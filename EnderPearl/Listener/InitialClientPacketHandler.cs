@@ -28,7 +28,6 @@ namespace EnderPearl.Listener
 		private readonly OnlineLoginForge onlineLoginForge;
 		private readonly ConnectedPlayerRegistry connectedPlayers;
 		private readonly Action playerCountChanged;
-		private readonly Palette.BackendPaletteStore backendPaletteStore;
 		private byte[]? clientEncryptionKey;
 		private ProxyConnection? connection;
 		private int joinStarted;
@@ -40,10 +39,7 @@ namespace EnderPearl.Listener
 			ClientLoginAuthenticator authenticator,
 			OnlineLoginForge onlineLoginForge,
 			ConnectedPlayerRegistry connectedPlayers,
-			Action playerCountChanged,
-
-			Palette.BackendPaletteStore? backendPaletteStore
-
+			Action playerCountChanged
 		)
 		{
 			this.session = session;
@@ -53,9 +49,6 @@ namespace EnderPearl.Listener
 			this.onlineLoginForge = onlineLoginForge;
 			this.connectedPlayers = connectedPlayers;
 			this.playerCountChanged = playerCountChanged;
-		
-			this.backendPaletteStore = backendPaletteStore ?? Palette.BackendPaletteStore.Disabled();
-
 		}
 
 		public PacketSignal Handle(IPacket packet)
@@ -131,10 +124,7 @@ namespace EnderPearl.Listener
 					),
 					clientLogin,
 					keyPair,
-					onlineLoginForge.Forge(keyPair, clientLogin),
-
-					backendPaletteStore
-
+					onlineLoginForge.Forge(keyPair, clientLogin)
 				);
 
 				RegistrationResult registration = connectedPlayers.Register(connection);

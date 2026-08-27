@@ -42,7 +42,6 @@ namespace EnderPearl.Listener
 		private readonly MojangMimicIdentity? mimicIdentity;
 		private ProxyConsole? console;
 		private RakNet.Listener? listener;
-		private Palette.BackendPaletteStore backendPaletteStore = Palette.BackendPaletteStore.Disabled();
 		private volatile bool shuttingDown;
 
 		public BedrockProxyListener(ProxyConfig config, ProxyPermissions permissions, MojangMimicIdentity? mimicIdentity)
@@ -64,30 +63,6 @@ namespace EnderPearl.Listener
 				config.Backend.Name,
 				config.HubBackendName
 			);
-			backendPaletteStore = config.CrossBackendPalette
-				? Palette.BackendPaletteStore.Load(config.CrossBackendPaletteCacheFile)
-				: Palette.BackendPaletteStore.Disabled();
-			if (config.CrossBackendPalette)
-			{
-				Logger.Info($"Cross-backend item and entity registries on ({backendPaletteStore.Describe()}).");
-				// A backend nobody has visited yet contributes nothing to a joining client's registries,
-				// so its custom content is wrong for anyone who switches there before it is learned.
-				List<string> unlearned = new List<string>();
-				foreach (string name in config.Backends.Keys)
-				{
-					if (!backendPaletteStore.KnownBackends().Contains(name))
-					{
-						unlearned.Add(name);
-					}
-				}
-				unlearned.Sort(StringComparer.Ordinal);
-				if (unlearned.Count > 0)
-				{
-					Logger.Info(
-						$"Backends not learned yet: {string.Join(", ", unlearned)}. Their custom items and entities render correctly only "
-						+ "for players who log in after someone has been there once.");
-				}
-			}
 			var onlineLoginForge = new OnlineLoginForge();
 			var backendConnector = new BackendConnector(
 				backendDirectory,
@@ -101,7 +76,6 @@ namespace EnderPearl.Listener
 				connectedPlayers,
 				permissions,
 				playerEnum,
-				backendPaletteStore,
 				config.PublicAddress,
 				listen.Port
 			);
@@ -271,8 +245,7 @@ namespace EnderPearl.Listener
 				),
 				onlineLoginForge,
 				connectedPlayers,
-				OnPlayerRosterChanged,
-				backendPaletteStore
+				OnPlayerRosterChanged
 			));
 			// Handler first, read loop second - Java's initSession ordering. Starting the loop before
 			// the handler existed silently dropped a client's earliest packets.

@@ -55,10 +55,6 @@ namespace EnderPearl.Config
 
 		public string? BackendPackCacheDir { get; }
 
-		public bool CrossBackendPalette { get; }
-
-		public string? CrossBackendPaletteCacheFile { get; }
-
 		public string PublicAddress { get; }
 
 		public ProxyConfig(
@@ -77,8 +73,7 @@ namespace EnderPearl.Config
 			int keyForgePort)
 			: this(listenAddress, backend, backends, hubBackendName, backendProtocol, policy,
 				motd, subMotd, gameType, maxPlayers, compressionAlgorithm, compressionThreshold,
-				 backendPackCacheDir: null, crossBackendPalette: true,
-				crossBackendPaletteCacheFile: null, publicAddress: "", keyForgePort)
+				 backendPackCacheDir: null, publicAddress: "", keyForgePort)
 		{
 		}
 
@@ -96,8 +91,6 @@ namespace EnderPearl.Config
 			PacketCompressionAlgorithm compressionAlgorithm,
 			int compressionThreshold,
 			string? backendPackCacheDir,
-			bool crossBackendPalette,
-			string? crossBackendPaletteCacheFile,
 			string publicAddress,
 			int keyForgePort)
 		{
@@ -155,8 +148,6 @@ namespace EnderPearl.Config
 			CompressionAlgorithm = compressionAlgorithm;
 			CompressionThreshold = compressionThreshold;
 			BackendPackCacheDir = backendPackCacheDir;
-			CrossBackendPalette = crossBackendPalette;
-			CrossBackendPaletteCacheFile = crossBackendPaletteCacheFile;
 			PublicAddress = publicAddress;
 		}
 
@@ -242,8 +233,6 @@ namespace EnderPearl.Config
 				Compression(config.GetString("compression", "zlib")),
 				config.GetInt("compressionThreshold", 0),
 				Path.GetFullPath(Path.Combine(configDir, "cache", "packs")),
-				config.GetBool("crossBackendPalette", true),
-				Path.GetFullPath(Path.Combine(configDir, "cache", "backend-palettes.nbt")),
 				config.GetString("publicAddress", "").Trim(),
 				config.GetInt("keyForge.port", 19139)
 			);
@@ -291,7 +280,6 @@ namespace EnderPearl.Config
 					["dir"] = "",
 					["cacheBackendPacks"] = true
 				},
-				["crossBackendPalette"] = true,
 				["publicAddress"] = "",
 				["keyForge"] = new JsonObject
 				{

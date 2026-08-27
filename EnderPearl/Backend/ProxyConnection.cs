@@ -7,7 +7,6 @@ using EnderPearl.Auth;
 using EnderPearl.Config;
 using EnderPearl.Crypto;
 using EnderPearl.Listener;
-using EnderPearl.Palette;
 using EnderPearl.Session;
 using global::Protocol.Packets;
 using global::Protocol.Types;
@@ -48,7 +47,6 @@ namespace EnderPearl.Backend
 		private readonly ClientLogin clientLogin;
 		private readonly ECDsaHolder keyPair;
 		private LoginPacket backendLogin;
-		private readonly CrossBackendPalette crossBackendPalette;
 		private bool? clientBlockIdsHashed;
 		private readonly ClientWorldState clientWorldState = new();
 		private BackendSession? backend;
@@ -92,26 +90,12 @@ namespace EnderPearl.Backend
 			ECDsaHolder keyPair,
 			LoginPacket backendLogin
 		)
-			: this(client, sessionProfile, clientLogin, keyPair, backendLogin, null)
-		{
-		}
-
-		public ProxyConnection(
-			ListenerSession client,
-			ProxySessionProfile sessionProfile,
-			ClientLogin clientLogin,
-			ECDsaHolder keyPair,
-			LoginPacket backendLogin,
-	
-			BackendPaletteStore? backendPaletteStore
-		)
 		{
 			this.client = client ?? throw new ArgumentNullException(nameof(client));
 			this.sessionProfile = sessionProfile;
 			this.clientLogin = clientLogin;
 			this.keyPair = keyPair;
 			this.backendLogin = backendLogin;
-			this.crossBackendPalette = new CrossBackendPalette(backendPaletteStore);
 		}
 
 		public ListenerSession Client() => client;
@@ -199,11 +183,6 @@ namespace EnderPearl.Backend
 				backendLogin = login;
 			}
 		}
-		/// <summary>
-		/// This player's cross-backend item and entity registries. Decided at login and unchangeable
-		/// afterwards, because that is when Bedrock reads them; see <see cref="CrossBackendPalette"/>.
-		/// </summary>
-		public CrossBackendPalette CrossBackendPalette => crossBackendPalette;
 
 		/// <summary>
 		/// Whether this client reads block ids as hashes, fixed by the StartGame it logged in with.
