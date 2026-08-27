@@ -123,7 +123,7 @@ namespace EnderPearl.Backend
 			{
 				return PacketSignal.Handled;
 			}
-
+			
 			long traceSequence = -1;
 			if (connection.IsPacketTraceActive())
 			{
@@ -293,7 +293,6 @@ namespace EnderPearl.Backend
 			}
 			return PacketSignal.Handled;
 		}
-
 
 		private bool IsCurrentBackend()
 		{

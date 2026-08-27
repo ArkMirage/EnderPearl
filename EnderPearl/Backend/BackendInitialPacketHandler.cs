@@ -151,16 +151,6 @@ namespace EnderPearl.Backend
 			Logger.Info(
 				$"Backend {backendName} disconnected before handshake: reason={packet.Reason} skipped={packet.Messages.Index == 1} message={kickMessage} filtered={Messages.DisconnectFilteredMessage(packet)}.");
 			WarnPreHandshakeDisconnect(packet);
-			warnedPreHandshakeDisconnect = true;
-			 backend.SetDisconnectClientOnClose(false);
-			 var failure = new InvalidOperationException(
-			 "Backend " + backendName + " rejected the proxy login pre-handshake: " + packet.Reason+
-			(string.IsNullOrEmpty(kickMessage) ? "" : " (" + kickMessage + ")"));
-			     if (joinFailover == null || !joinFailover.HandleJoinFailure(connection, backendName, failure.Message))
-				 {
-				 activation.OnFailure(backend, failure);
-			     }
-			 backend.Disconnect("Login rejected");
 			return PacketSignal.Handled;
 		}
 
@@ -231,11 +221,6 @@ namespace EnderPearl.Backend
 			}
 			Logger.Info(
 				$"WARNING: Backend {backendName} did not accept the proxy's offline backend login. If the backend has online mode enabled, proxied joins will not work; set the backend to offline mode and secure it with the EnderPearlGuard plugin.");
-			// Nobody else has taken this failure (no disconnect packet arrived, no join candidate
-			     // moved): notify the activation so a pending switch abandons right away instead of
-      // leaving a dead pendingBackend reference feeding the relay's drop-gate.
-			 activation.OnFailure(backend, new InvalidOperationException(
-			 "Backend " + backendName + " closed before completing the encryption handshake: " + reason));
 		}
 
 		/// <summary>
