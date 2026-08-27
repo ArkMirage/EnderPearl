@@ -210,11 +210,12 @@ namespace EnderPearl.Auth
 			string? payloadJson = MojangMimicIdentity.GenuinePayloadJson;
 			if (payloadJson != null)
 			{
-				// cpk 必须是本登录实际签署皮肤 JWT 的那把公钥（代理的每玩家密钥）；
-				// 镜像带来的旧客户端 cpk 会让后端皮肤验证失败。
+				// 模板是进程里第一个完成认证的玩家的正版令牌：除 cpk 外，所有身份声明也必须改写
+				// 成本次登录者，否则每个玩家都以同一个 Xbox 身份（相同 xid/xname）进入后端，
+				// 第二名玩家连上同一台 BDS 时会被以 ServerIdConflict(44) 拒绝。
 				if (System.Text.Json.Nodes.JsonNode.Parse(payloadJson) is System.Text.Json.Nodes.JsonObject node)
 				{
-					node["cpk"] = keyPair.PublicKeyBase64();
+					StampPlayerIdentity(node, keyPair, authData, skinData);
 					payloadJson = node.ToJsonString();
 				}
 				return JwtHelper.EncodeRs256(payloadJson, mimic.Rsa, mimic.Kid);
@@ -234,6 +235,51 @@ namespace EnderPearl.Auth
 				};
 			}
 			return JwtHelper.EncodeRs256(payloadNode.ToJsonString(), mimic.Rsa, mimic.Kid);
+		}
+
+		/// <summary>
+		/// 把捕获模板（第一个玩家的正版令牌载荷）中的每玩家声明改写成本次登录者的值。字段集与
+		/// <see cref="BuildOidcClaims"/> 保持一致：cpk 签名公钥、xid/xname/identity Xbox 身份、
+		/// leguuid/mid 的 XUID 派生值；时间窗整体平移到现在、保持模板原有的时长与形状。
+		/// </summary>
+		private static void StampPlayerIdentity(
+			System.Text.Json.Nodes.JsonObject node,
+			ECDsaHolder keyPair,
+			AuthData authData,
+			System.Text.Json.Nodes.JsonObject skinData)
+		{
+			node["cpk"] = keyPair.PublicKeyBase64();
+			node["xid"] = authData.Xuid;
+			node["xname"] = authData.DisplayName;
+			node["identity"] = authData.Identity.ToString();
+			node["leguuid"] = DeterministicUuid("pocket-auth-1-xuid:" + authData.Xuid).ToString();
+			node["mid"] = PlayFabId(skinData, authData.Xuid);
+
+			long? iat = AsEpoch(node["iat"]);
+			long? exp = AsEpoch(node["exp"]);
+			if (iat != null && exp != null && exp > iat)
+			{
+				// 秒级时间戳 (<10^12) 与毫秒级并存，按量级判定后平移，避免跨单位错算。
+				bool milliseconds = iat > 1_000_000_000_000;
+				long now = milliseconds
+					? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+					: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000;
+				long shift = now - iat.Value;
+				node["iat"] = now;
+				node["exp"] = exp.Value + shift;
+				if (AsEpoch(node["nbf"]) is long nbf)
+				{
+					node["nbf"] = nbf + shift;
+				}
+			}
+		}
+
+		private static long? AsEpoch(System.Text.Json.Nodes.JsonNode? node)
+		{
+			return node is System.Text.Json.Nodes.JsonValue value
+				&& value.TryGetValue<long>(out long epoch)
+				? epoch
+				: null;
 		}
 
 		private static Dictionary<string, object> BuildOidcClaims(ECDsaHolder keyPair, AuthData authData, System.Text.Json.Nodes.JsonObject skinData)

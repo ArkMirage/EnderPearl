@@ -53,10 +53,6 @@ namespace EnderPearl.Config
 
 		public int CompressionThreshold { get; }
 
-		public string? ResourcePacksDir { get; }
-
-		public bool CacheBackendPacks { get; }
-
 		public string? BackendPackCacheDir { get; }
 
 		public bool CrossBackendPalette { get; }
@@ -78,11 +74,10 @@ namespace EnderPearl.Config
 			int maxPlayers,
 			PacketCompressionAlgorithm compressionAlgorithm,
 			int compressionThreshold,
-			string? resourcePacksDir,
 			int keyForgePort)
 			: this(listenAddress, backend, backends, hubBackendName, backendProtocol, policy,
-				motd, subMotd, gameType, maxPlayers, compressionAlgorithm, compressionThreshold, resourcePacksDir,
-				cacheBackendPacks: true, backendPackCacheDir: null, crossBackendPalette: true,
+				motd, subMotd, gameType, maxPlayers, compressionAlgorithm, compressionThreshold,
+				 backendPackCacheDir: null, crossBackendPalette: true,
 				crossBackendPaletteCacheFile: null, publicAddress: "", keyForgePort)
 		{
 		}
@@ -100,8 +95,6 @@ namespace EnderPearl.Config
 			int maxPlayers,
 			PacketCompressionAlgorithm compressionAlgorithm,
 			int compressionThreshold,
-			string? resourcePacksDir,
-			bool cacheBackendPacks,
 			string? backendPackCacheDir,
 			bool crossBackendPalette,
 			string? crossBackendPaletteCacheFile,
@@ -161,8 +154,6 @@ namespace EnderPearl.Config
 			KeyForgePort = keyForgePort;
 			CompressionAlgorithm = compressionAlgorithm;
 			CompressionThreshold = compressionThreshold;
-			ResourcePacksDir = resourcePacksDir;
-			CacheBackendPacks = cacheBackendPacks;
 			BackendPackCacheDir = backendPackCacheDir;
 			CrossBackendPalette = crossBackendPalette;
 			CrossBackendPaletteCacheFile = crossBackendPaletteCacheFile;
@@ -226,15 +217,7 @@ namespace EnderPearl.Config
 				CanonicalProtocol.FromConfig(config.GetString("protocol", "auto"));
 			string defaultSubMotd = "Bedrock " + CanonicalProtocol.Newest().MinecraftVersion;
 
-			string resourcePacksDirProp = config.GetString("resourcePacks.dir", "").Trim();
-			string? resourcePacksDir = null;
-			if (resourcePacksDirProp.Length > 0)
-			{
-				string resolved = Path.IsPathRooted(resourcePacksDirProp)
-					? resourcePacksDirProp
-					: Path.Combine(configDir, resourcePacksDirProp);
-				resourcePacksDir = Path.GetFullPath(resolved);
-			}
+			
 
 			FailoverConfig failover = FailoverConfig.From(config, hubBackendName);
 			return new ProxyConfig(
@@ -258,8 +241,6 @@ namespace EnderPearl.Config
 				config.GetInt("maxPlayers", 20),
 				Compression(config.GetString("compression", "zlib")),
 				config.GetInt("compressionThreshold", 0),
-				resourcePacksDir,
-				config.GetBool("resourcePacks.cacheBackendPacks", true),
 				Path.GetFullPath(Path.Combine(configDir, "cache", "packs")),
 				config.GetBool("crossBackendPalette", true),
 				Path.GetFullPath(Path.Combine(configDir, "cache", "backend-palettes.nbt")),
