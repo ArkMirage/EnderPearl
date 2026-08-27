@@ -331,6 +331,14 @@ namespace EnderPearl.Backend
 					mobEffect.EventID == global::Protocol.MobEffectPacketPayload.Event.Remove);
 				mobEffect.InvalidateWireCache();
 			}
+			else if (packet is ShowCreditsPacket sc)
+			{
+				if (sc.PlayerRuntimeID != null)
+				{
+					sc.PlayerRuntimeID.Value = unchecked((ulong)connection.ToClientRuntimeEntityId(unchecked((long)sc.PlayerRuntimeID.Value), false));
+				}
+				sc.InvalidateWireCache();
+			}
 			else if (packet is MotionPredictionHintsPacket movementPrediction)
 			{
 				// This codec's name for Java's MovementPredictionSyncPacket.
