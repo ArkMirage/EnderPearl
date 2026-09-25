@@ -52,11 +52,11 @@ namespace EnderPearl.Config
 			{
 				foreach (var pair in backendPassthrough)
 				{
-					normalized[Normalize(pair.Key)] = Lowercased(pair.Value);
+					normalized[ConfigValues.Normalize(pair.Key)] = Lowercased(pair.Value);
 				}
 			}
 			BackendPassthrough = normalized;
-			Qualifier = Normalize(qualifier);
+			Qualifier = ConfigValues.Normalize(qualifier);
 		}
 
 		/// <summary>The proxy keeps every name on every backend, and the qualified form is available.</summary>
@@ -99,15 +99,9 @@ namespace EnderPearl.Config
 		/// <summary>The names this backend keeps for itself.</summary>
 		public IReadOnlySet<string> PassthroughFor(string? backendName)
 		{
-			return BackendPassthrough.TryGetValue(Normalize(backendName), out var configured)
+			return BackendPassthrough.TryGetValue(ConfigValues.Normalize(backendName), out var configured)
 				? configured
 				: Passthrough;
-		}
-
-		/// <summary>Whether <paramref name="commandName"/> reaches the backend while the player is on <paramref name="backendName"/>.</summary>
-		public bool IsPassthrough(string? backendName, string? commandName)
-		{
-			return PassthroughFor(backendName).Contains(Normalize(commandName));
 		}
 
 		/// <summary>
@@ -130,15 +124,10 @@ namespace EnderPearl.Config
 			{
 				if (value != null && value.Trim().Length > 0)
 				{
-					normalized.Add(Normalize(value));
+					normalized.Add(ConfigValues.Normalize(value));
 				}
 			}
 			return normalized;
-		}
-
-		private static string Normalize(string? value)
-		{
-			return value == null ? "" : value.Trim().ToLowerInvariant();
 		}
 	}
 }

@@ -1,5 +1,3 @@
-using System;
-
 namespace EnderPearl.Config
 {
 	/// <summary>
@@ -21,19 +19,5 @@ namespace EnderPearl.Config
 		public required JoinConfig Join { get; init; }
 
 		public CommandsConfig Commands { get; init; } = CommandsConfig.Defaults();
-
-		public static ProxyPolicy Defaults()
-		{
-			return new ProxyPolicy
-			{
-				Failover = FailoverConfig.Disabled(),
-				BackendSwitch = BackendSwitchConfig.Defaults(),
-				Permissions = PermissionsConfig.Defaults(),
-				Security = SecurityConfig.Defaults(),
-				ForcedHosts = ForcedHostsConfig.Empty(),
-				Join = JoinConfig.Defaults(),
-				Commands = CommandsConfig.Defaults()
-			};
-		}
 	}
 }

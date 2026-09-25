@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -309,24 +309,6 @@ namespace EnderPearl.Relay
 				return null;
 			}
 			return pendingBackend;
-		}
-
-	
-
-		private static Guid? ExtractPackUuid(string packId)
-		{
-			if (packId == null || packId.Length == 0)
-			{
-				return null;
-			}
-			// Format is "uuid_version" or just "uuid"; UUIDs use hyphens, not underscores.
-			int underscore = packId.IndexOf('_');
-			string uuidPart = underscore >= 0 ? packId.Substring(0, underscore) : packId;
-			if (Guid.TryParseExact(uuidPart, "D", out Guid uuid))
-			{
-				return uuid;
-			}
-			return null;
 		}
 
 		private static bool IsBackendLoginResponse(IPacket packet)

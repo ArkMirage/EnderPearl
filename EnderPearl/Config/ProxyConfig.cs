@@ -77,20 +77,6 @@ namespace EnderPearl.Config
 
 		public string PublicAddress { get; init; } = "";
 
-		public FailoverConfig Failover => Policy.Failover;
-
-		public BackendSwitchConfig BackendSwitch => Policy.BackendSwitch;
-
-		public PermissionsConfig Permissions => Policy.Permissions;
-
-		public SecurityConfig Security => Policy.Security;
-
-		public ForcedHostsConfig ForcedHosts => Policy.ForcedHosts;
-
-		public JoinConfig Join => Policy.Join;
-
-		public CommandsConfig Commands => Policy.Commands;
-
 		// No packaged config template exists, so a generated on-disk config is the only configuration
 		// documentation an operator ever sees there. It has to be a working default rather than nothing.
 		public static ProxyConfig LoadOrCreate(string path)
@@ -188,7 +174,6 @@ namespace EnderPearl.Config
 				["backends"] = BackendConfig.DefaultSection(),
 				["hubBackend"] = BackendConfig.DEFAULT_NAME,
 				["failover"] = FailoverConfig.DefaultSection(),
-				["protocolFault"] = ProtocolFaultPolicy.DefaultSection(),
 				["switch"] = BackendSwitchConfig.DefaultSection(),
 				["join"] = JoinConfig.DefaultSection(),
 				["permissions"] = PermissionsConfig.DefaultSection(),

@@ -2,6 +2,8 @@
 using EnderPearl.Backend;
 using EnderPearl.Player;
 using global::Protocol.Packets;
+using EnderPearl.Config;
+using EnderPearl.Server;
 
 namespace EnderPearl.Command
 {
@@ -23,12 +25,10 @@ namespace EnderPearl.Command
 		/// <summary>Velocity's spelling, and what an admin reaches for when moving the whole network.</summary>
 		public const string ALL = "all";
 
-		private readonly ConnectedPlayerRegistry connectedPlayers;
 		private readonly ProxyPermissions permissions;
 
-		public ProxyPlayerEnum(ConnectedPlayerRegistry connectedPlayers, ProxyPermissions permissions)
+		public ProxyPlayerEnum( ProxyPermissions permissions)
 		{
-			this.connectedPlayers = connectedPlayers ?? throw new ArgumentNullException(nameof(connectedPlayers));
 			this.permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));
 		}
 
@@ -59,7 +59,7 @@ namespace EnderPearl.Command
 		public void Broadcast()
 		{
 			List<string> options = Values();
-			foreach (ProxyConnection connection in connectedPlayers.Connections())
+			foreach (ProxyConnection connection in ProxyServer.ConnectedPlayers.Connections())
 			{
 				if (!MayReceive(connection))
 				{
@@ -91,7 +91,7 @@ namespace EnderPearl.Command
 			// Insertion order matters for stable autocomplete; duplicate gamertags collapse onto one
 			// value the way Java's LinkedHashMap did.
 			List<string> values = new() { ALL };
-			foreach (ProxyConnection connection in connectedPlayers.Connections())
+			foreach (ProxyConnection connection in ProxyServer.ConnectedPlayers.Connections())
 			{
 				string name = connection.ClientLogin.AuthData.DisplayName;
 				if (!string.IsNullOrWhiteSpace(name) && !values.Contains(name))

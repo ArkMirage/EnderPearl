@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 
 namespace EnderPearl.Core
@@ -11,9 +11,6 @@ namespace EnderPearl.Core
 	/// <p>Colours are on by default and can be forced off with <c>ENDERPEARL_LOG_COLOR=off</c> (or
 	/// the common <c>NO_COLOR</c> convention); they are disabled automatically when stdout is
 	/// redirected.</p>
-	///
-	/// <p><c>Debug</c> compiles away in Release builds - anything that must survive into a
-	/// production log belongs at Info or above.</p>
 	/// </summary>
 	public static class Logger
 	{
@@ -50,22 +47,9 @@ namespace EnderPearl.Core
 			Write("INFO", "36", message);
 		}
 
-		public static void Warn(string message)
-		{
-			Write("WARN", "33", message);
-		}
-
 		public static void Error(string message)
 		{
 			Write("ERROR", "31", message);
-		}
-
-		// Call sites are stripped by the compiler in Release builds; keeping the attribute on the
-		// method itself (rather than #if around it) keeps Debug call sites type-checked either way.
-		[System.Diagnostics.Conditional("DEBUG")]
-		public static void Debug(string message)
-		{
-			Write("DEBUG", "35", message);
 		}
 
 		private static void Write(string tag, string colorCode, string message)

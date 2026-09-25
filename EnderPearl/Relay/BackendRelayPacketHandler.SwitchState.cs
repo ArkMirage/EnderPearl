@@ -338,26 +338,6 @@ namespace EnderPearl.Relay
 			return false;
 		}
 
-	
-
-
-		private sealed class ObservedPack
-		{
-			public readonly byte[] Buffer;
-			public readonly byte[] Hash;
-			public readonly long ChunkSize;
-			public int Filled;
-
-			public ObservedPack(byte[] buffer, byte[] hash, long chunkSize)
-			{
-				Buffer = buffer;
-				Hash = hash;
-				ChunkSize = Math.Min(int.MaxValue, chunkSize);
-			}
-		}
-
-	
-
 		/// <summary>
 		/// This codec splits the Cloudburst Status enum into a wire discriminant
 		/// (<see cref="global::Protocol.ResourcePackResponse"/>) plus a typed payload union whose
@@ -565,29 +545,6 @@ namespace EnderPearl.Relay
 				// The backend's individual ADMIN/HOST/OWNER command level corrects the MEMBER world
 				// default above. Ordinary members and explicit visitor/custom permissions are untouched.
 			}
-		}
-
-		/// <summary>Mirror of ProxyResourcePackRegistry's private MceUuid -> Guid conversion.</summary>
-		private static Guid? PackUuidOf(global::Protocol.Types.mce.UUID uuid)
-		{
-			if (uuid == null)
-			{
-				return null;
-			}
-			Span<byte> bytes = stackalloc byte[16];
-			ulong mostSignificantBits = uuid.MostSignificantBits;
-			ulong leastSignificantBits = uuid.LeastSignificantBits;
-			for (int i = 7; i >= 0; i--)
-			{
-				bytes[i] = (byte)mostSignificantBits;
-				mostSignificantBits >>= 8;
-			}
-			for (int i = 15; i >= 8; i--)
-			{
-				bytes[i] = (byte)leastSignificantBits;
-				leastSignificantBits >>= 8;
-			}
-			return new Guid(bytes);
 		}
 	}
 }

@@ -59,10 +59,6 @@ namespace EnderPearl.Player
 			return ++serverboundSequence;
 		}
 
-		public long ClientboundSequence() => clientboundSequence;
-
-		public long ServerboundSequence() => serverboundSequence;
-
 		/// <summary>Java's System.nanoTime: a monotonic nanosecond clock, independent of wall time.</summary>
 		internal static long NanoTime()
 		{

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Linq;
@@ -63,8 +63,7 @@ namespace EnderPearl.Auth
 				return new ClientLogin(
 					new AuthData(effectiveName, identity, effectiveXuid),
 					skinData,
-					identityKey,
-					null
+					identityKey
 				);
 			}
 			catch (Exception exception)

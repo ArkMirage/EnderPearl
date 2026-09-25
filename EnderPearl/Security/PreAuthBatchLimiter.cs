@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Globalization;
-using System.IO;
 
 namespace EnderPearl.Security
 {
@@ -29,14 +28,12 @@ namespace EnderPearl.Security
 	/// genuinely large ones, are never measured against it.</para>
 	///
 	/// <para>In the Java original this was a Netty <c>ChannelInboundHandlerAdapter</c> parked in the pipeline.
-	/// This build has no pipeline: <see cref="EnderPearl.Core.PacketSession"/> calls <see cref="ThrowIfTooLarge"/>
-	/// on every decompressed batch (or consults <see cref="MaxPreAuthBatchBytes"/> through its
-	/// <c>MaxInboundBatchBytesProvider</c> hook), which is why this class is a static policy helper instead.</para>
+	/// This build has no pipeline: <see cref="EnderPearl.Core.PacketSession"/> consults
+	/// <see cref="MaxPreAuthBatchBytes"/> through its <c>MaxInboundBatchBytesProvider</c> hook, which is why
+	/// this class is a static policy helper instead.</para>
 	/// </summary>
 	public static class PreAuthBatchLimiter
 	{
-		public const string NAME = "endstone-preauth-batch-limiter";
-
 		/// <summary>Default 1 MiB - roughly ten times the largest login seen in practice.</summary>
 		public const int DEFAULT_MAX_PRE_AUTH_BATCH_BYTES = 1024 * 1024;
 
@@ -64,27 +61,6 @@ namespace EnderPearl.Security
 				return parsedEnvironment;
 			}
 			return DEFAULT_MAX_PRE_AUTH_BATCH_BYTES;
-		}
-
-		/// <summary>
-		/// Enforces the limit for one inbound batch. Throws <see cref="IOException"/> when
-		/// <paramref name="decompressedSize"/> exceeds the cap while <paramref name="authenticated"/> is false;
-		/// authenticated sessions and a limit of 0 (disabled) pass everything.
-		/// </summary>
-		public static void ThrowIfTooLarge(long decompressedSize, bool authenticated)
-		{
-			int maxBytes = MaxPreAuthBatchBytes;
-			if (maxBytes <= 0 || authenticated)
-			{
-				return;
-			}
-			if (decompressedSize <= maxBytes)
-			{
-				return;
-			}
-			// The Java handler owned the released batch here because nothing downstream would see it;
-			// this build builds plain managed objects, so there is nothing to release - throwing is enough.
-			throw new IOException("Pre-login batch of " + decompressedSize + " bytes exceeds the maximum of " + maxBytes + " bytes");
 		}
 	}
 }

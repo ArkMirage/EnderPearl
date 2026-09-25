@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -6,7 +6,7 @@ namespace EnderPearl.Auth;
 
 public static class JwtHelper
 {
-	private static string Base64UrlEncode(byte[] data)
+	public static string Base64UrlEncode(byte[] data)
 	{
 		return Convert.ToBase64String(data)
 			.TrimEnd('=')
@@ -57,15 +57,6 @@ public static class JwtHelper
 			HashAlgorithmName.SHA384, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
 	}
 
-	public static T? DecodeAndVerify<T>(string token, ECDsa verificationKey) where T : class
-	{
-		if (!TryVerifyEs384(token, verificationKey))
-			return null;
-
-		var payload = DecodePayload(token);
-		return JsonSerializer.Deserialize<T>(payload);
-	}
-
 	private static byte[] SerializePayload<T>(T payload)
 	{
 		return payload is string jsonStr
@@ -104,10 +95,5 @@ public static class JwtHelper
 		var signature = signingKey.SignData(signingInput, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
 
 		return $"{b64Header}.{b64Payload}.{Base64UrlEncode(signature)}";
-	}
-
-	public static string EncodeEs384(ECDsa signingKey, string rawJsonPayload, string? x5u = null)
-	{
-		return EncodeEs384(rawJsonPayload, signingKey, x5u);
 	}
 }

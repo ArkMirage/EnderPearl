@@ -1,18 +1,12 @@
-using System;
 using EnderPearl.Backend;
 using EnderPearl.Core;
-using EnderPearl.Diagnostics;
 using global::Protocol.Packets;
 
 namespace EnderPearl.Relay
 {
 	/// <summary>
 	/// Backend disconnect interception: turns a backend's DisconnectPacket into a Failover when policy
-	/// allows, and holds the protocol fault that preceded the disconnect.
-	///
-	/// <para>Nothing assigns that fault in this build - the Java hand-decoder that did has no counterpart
-	/// here - so Failover.Begin is always handed null. The field is kept so the two callers that used to
-	/// attribute the disconnect to a cause do not have to be revisited when a decoder exists.</para>
+	/// allows.
 	///
 	/// <para>"Disconnect" rather than "kick", because the direction is what a reader has to get right:
 	/// this is the backend ending the session, not the proxy. The proxy disconnecting a client is
@@ -20,17 +14,6 @@ namespace EnderPearl.Relay
 	/// </summary>
 	public sealed partial class BackendRelayPacketHandler
 	{
-		/// <summary>
-		/// The last <c>PacketViolationWarningPacket</c> this backend sent, if it was fatal.
-		///
-		/// <para>BDS answers a packet it cannot read with one of these and then tears the connection down
-		/// without a disconnect packet, so the proxy only ever sees the timeout that follows. Holding the
-		/// violation lets the disconnect be attributed to the real cause instead of looking like the
-		/// backend went down - which is the difference between disconnecting the player with an explanation
-		/// and silently failing them over into the same bug.</para>
-		/// </summary>
-		private ProtocolFault? pendingProtocolFault;
-
 		/// <summary>
 		/// Set when a backend's disconnect was relayed to the client instead of being turned into a
 		/// Failover.
@@ -103,9 +86,7 @@ namespace EnderPearl.Relay
 				// Java "its disconnect did not decode" alternative never applies.
 				$"Backend {BackendName} disconnected {Connection.Client.RemoteEndPoint} ({reason}); intercepted."
 			);
-			// The fault matters here too: a backend that answers a violation with a real disconnect
-			// packet rather than by timing out arrives down this path instead of OnDisconnected.
-			if (!Failover.Begin(Connection, BackendName, reason, pendingProtocolFault))
+			if (!Failover.Begin(Connection, BackendName, reason))
 			{
 				return false;
 			}

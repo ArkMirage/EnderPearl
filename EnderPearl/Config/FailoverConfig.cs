@@ -30,8 +30,6 @@ namespace EnderPearl.Config
 			init => backendFallbacks = NormalizeOverrides(value);
 		}
 
-		public ProtocolFaultPolicy ProtocolFault { get; init; } = ProtocolFaultPolicy.Defaults();
-
 		public BackendDisconnectAction OnBackendDisconnect { get; init; } = BackendDisconnectAction.AUTO;
 
 		private static IReadOnlyDictionary<string, List<string>> NormalizeOverrides(IReadOnlyDictionary<string, List<string>> overrides)
@@ -57,7 +55,6 @@ namespace EnderPearl.Config
 				Enabled = false,
 				Fallbacks = new List<string>(),
 				BackendFallbacks = new Dictionary<string, List<string>>(),
-				ProtocolFault = ProtocolFaultPolicy.Defaults(),
 				OnBackendDisconnect = BackendDisconnectAction.AUTO
 			};
 		}
@@ -122,7 +119,6 @@ namespace EnderPearl.Config
 				Enabled = enabled,
 				Fallbacks = fallbacks,
 				BackendFallbacks = backendFallbacks,
-				ProtocolFault = ProtocolFaultPolicy.From(config),
 				OnBackendDisconnect = BackendDisconnectActions.Parse(config.GetString("failover.onBackendDisconnect"))
 			};
 		}

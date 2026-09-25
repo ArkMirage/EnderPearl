@@ -57,7 +57,7 @@ namespace EnderPearl.Config
 
 		/// <summary>
 		/// Whether the path exists in the file - distinct from "present but empty", which several
-		/// settings (an empty failover list, an empty protocolFault logFile) treat as meaningful.
+		/// settings (an empty failover list, an empty command list) treat as meaningful.
 		/// </summary>
 		public bool Has(string path) => Navigate(path) != null;
 

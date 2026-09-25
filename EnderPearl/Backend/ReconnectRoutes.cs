@@ -74,14 +74,6 @@ namespace EnderPearl.Backend
 			return route.ExpiresAtMillis < NowMillis ? null : route.BackendName;
 		}
 
-		public void Forget(string? xuid)
-		{
-			if (!IsBlank(xuid))
-			{
-				routes.TryRemove(xuid, out _);
-			}
-		}
-
 		public int Size()
 		{
 			Prune();

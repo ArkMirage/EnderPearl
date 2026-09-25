@@ -30,7 +30,7 @@ namespace EnderPearl.Relay
 			// Administrators are exempt: the cooldown exists so an unattended macro cannot turn one
 			// player into a connection flood against a backend.
 			bool admin = ProxyServer.Permissions.IsAdmin(sender.Xuid(), sender.Name());
-			if (!admin && !connection.ClaimProxyCommandSlot(ProxyServer.Config.Security.CommandCooldownMillis))
+			if (!admin && !connection.ClaimProxyCommandSlot(ProxyServer.Policy.Security.CommandCooldownMillis))
 			{
 				sender.SendMessage("You are using proxy commands too quickly. Try again in a moment.");
 				return;

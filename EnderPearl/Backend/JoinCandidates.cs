@@ -23,13 +23,13 @@ namespace EnderPearl.Backend
 			// Where the player was actually routed always leads, whether by forced host or by default.
 			// The try-list says where to go next, not where to start.
 			ordered.Add(routed);
-			seen.Add(Normalize(routed.Name));
+			seen.Add(ConfigValues.Normalize(routed.Name));
 
 			foreach (string name in join.TryOrder)
 			{
 				BackendConfig? backend = backendDirectory.Find(name);
 				// An unknown name is a config typo and costs one candidate, never the session.
-				if (backend != null && seen.Add(Normalize(backend.Name)))
+				if (backend != null && seen.Add(ConfigValues.Normalize(backend.Name)))
 				{
 					ordered.Add(backend);
 				}
@@ -44,11 +44,6 @@ namespace EnderPearl.Backend
 				}
 			}
 			return candidates;
-		}
-
-		private static string Normalize(string? name)
-		{
-			return name?.Trim().ToLowerInvariant() ?? "";
 		}
 	}
 }

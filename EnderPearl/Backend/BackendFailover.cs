@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using EnderPearl.Config;
-using EnderPearl.Diagnostics;
 using global::Protocol.Packets;
 using EnderPearl.Core;
 using EnderPearl.Player;
@@ -26,8 +24,6 @@ namespace EnderPearl.Backend
 		private readonly BackendDirectory backendDirectory;
 		private readonly BackendConnector backendConnector;
 		private readonly FailoverConfig failoverConfig;
-		private readonly object faultLogMutex = new();
-		private ProtocolFaultLog? protocolFaultLog;
 
 		public BackendFailover(
 			BackendDirectory backendDirectory,
@@ -49,22 +45,6 @@ namespace EnderPearl.Backend
 		public bool FailsOverOnBackendDisconnect(bool backendSuppliedMessage)
 		{
 			return failoverConfig.OnBackendDisconnect.FailsOver(backendSuppliedMessage);
-		}
-
-		/// <summary>Opened lazily so a proxy that never sees a fault never creates the file.</summary>
-		private ProtocolFaultLog ProtocolFaultLogRef()
-		{
-			lock (faultLogMutex)
-			{
-				if (protocolFaultLog == null)
-				{
-					ProtocolFaultPolicy policy = failoverConfig.ProtocolFault;
-					protocolFaultLog = policy.LogsToFile()
-						? new ProtocolFaultLog(policy.LogFile!)
-						: ProtocolFaultLog.Disabled();
-				}
-				return protocolFaultLog;
-			}
 		}
 
 		/// <summary>
@@ -91,35 +71,9 @@ namespace EnderPearl.Backend
 		}
 
 		/// <summary>Takes over an unexpected backend loss, if failover applies to it.</summary>
+		/// <returns>true when this method has taken responsibility for the client.</returns>
 		public bool Begin(ProxyConnection connection, string lostBackendName, string reason)
 		{
-			return Begin(connection, lostBackendName, reason, null);
-		}
-
-		/// <summary>
-		/// As Begin(connection, name, reason), but told why the backend was lost. When fault is non-null
-		/// the session ended because the proxy and the backend disagreed about the wire; under the
-		/// default policy the player is disconnected with a reason and the fault written to its own file.
-		///
-		/// <p>Returns true when this method has taken responsibility for the client.</p>
-		/// </summary>
-		public bool Begin(ProxyConnection connection, string lostBackendName, string reason, ProtocolFault? fault)
-		{
-			if (fault != null)
-			{
-				ProtocolFaultLogRef().Record(fault);
-				ProtocolFaultPolicy policy = failoverConfig.ProtocolFault;
-				if (policy.Disconnects())
-				{
-					Logger.Error(
-						$"Protocol fault on backend {lostBackendName} for {connection.Client.RemoteEndPoint}: {fault.Detail}. Disconnecting rather than failing over{(policy.LogsToFile() ? " (logged to " + policy.LogFile + ")" : "")}.");
-					if (connection.Client.IsConnected)
-					{
-						connection.Client.Disconnect(policy.Message);
-					}
-					return true;
-				}
-			}
 			if (!failoverConfig.Enabled || !connection.Client.IsConnected)
 			{
 				return false;

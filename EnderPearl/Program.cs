@@ -49,7 +49,7 @@ namespace EnderPearl
 				// both consult it, and a failure here is still inside this try/catch, so it is logged.
 				ProxyServer.Initialize(
 					config,
-					ProxyPermissions.Load(config.Permissions, permissionsPath),
+					ProxyPermissions.Load(config.Policy.Permissions, permissionsPath),
 					mimic
 				);
 				KeyServiceHost.Start(config.KeyForgePort, mimic);

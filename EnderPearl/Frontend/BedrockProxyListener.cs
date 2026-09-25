@@ -46,7 +46,7 @@ namespace EnderPearl.Frontend
 		{
 			// Reading the security config here is also the check that ProxyServer.Initialize ran first: a
 			// listener built before the proxy-wide state exists fails loudly instead of accepting peers.
-			connectionThrottle = new ConnectionThrottle(ProxyServer.Config.Security);
+			connectionThrottle = new ConnectionThrottle(ProxyServer.Policy.Security);
 		}
 
 		public void Start()
@@ -68,7 +68,7 @@ namespace EnderPearl.Frontend
 			// exactly the same way.
 			SystemCommands.Register(commandManager, networkCommands, Stop);
 			console = new ProxyConsole(commandManager);
-			SecurityConfig security = ProxyServer.Config.Security;
+			SecurityConfig security = ProxyServer.Policy.Security;
 
 			listener = BindListener(listen,security);
 
@@ -84,33 +84,33 @@ namespace EnderPearl.Frontend
 				+ (ProxyConnection.IsContinuousPacketTracingConfigured() ? "on" : "off")
 				+ $" traceMillis={ProxyConnection.ConfiguredPacketTraceMillis()} forceChunkRadius=0 "
 				+ $"{BackendRelayPacketHandler.DiagnosticSuppressionSummary()} {ClientRelayPacketHandler.MovementSampleSummary()}.");
-			if (ProxyServer.Config.Permissions.Admins.Count == 0)
+			if (ProxyServer.Policy.Permissions.Admins.Count == 0)
 			{
 				Logger.Info(
-					"No proxy administrators configured; /" + string.Join(", /", SortedCopy(ProxyServer.Config.Permissions.AdminCommands))
+					"No proxy administrators configured; /" + string.Join(", /", SortedCopy(ProxyServer.Policy.Permissions.AdminCommands))
 					+ " are unavailable to everyone. Set permissions.admins to your XUID to use them.");
 			}
-			if (!ProxyServer.Config.ForcedHosts.IsEmpty())
+			if (!ProxyServer.Policy.ForcedHosts.IsEmpty())
 			{
-				foreach (KeyValuePair<string, string> entry in ProxyServer.Config.ForcedHosts.ByHostname)
+				foreach (KeyValuePair<string, string> entry in ProxyServer.Policy.ForcedHosts.ByHostname)
 				{
 					Logger.Info($"Forced host {entry.Key} -> backend {entry.Value}.");
 				}
 			}
 			// A command the proxy has given away answers differently depending on where the player is
 			// standing, which is impossible to diagnose from a bug report. Say so once at startup.
-			if (!ProxyServer.Config.Commands.IsEmpty())
+			if (!ProxyServer.Policy.Commands.IsEmpty())
 			{
 				foreach (string backendName in BackendsNamesInOrder())
 				{
-					ICollection<string> passthroughSet = (ICollection<string>)ProxyServer.Config.Commands.PassthroughFor(backendName);
+					ICollection<string> passthroughSet = (ICollection<string>)ProxyServer.Policy.Commands.PassthroughFor(backendName);
 					List<string> passthrough = new List<string>(passthroughSet);
 					passthrough.Sort(StringComparer.Ordinal);
 					if (passthrough.Count > 0)
 					{
 						Logger.Info(
 							$"Backend {backendName} handles /{string.Join(", /", passthrough)} itself; the proxy forwards them there and does not"
-							+ $" advertise its own. Use /{ProxyServer.Config.Commands.Qualifier}<name> to reach the proxy's anywhere.");
+							+ $" advertise its own. Use /{ProxyServer.Policy.Commands.Qualifier}<name> to reach the proxy's anywhere.");
 					}
 				}
 			}

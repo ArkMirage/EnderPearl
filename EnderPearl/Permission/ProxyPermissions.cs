@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -66,12 +66,6 @@ namespace EnderPearl.Permission
 			this.file = file;
 		}
 
-		/// <summary>An in-memory instance with nothing persisted, for tests and for the config-only path.</summary>
-		public static ProxyPermissions InMemory(PermissionsConfig? config)
-		{
-			return new ProxyPermissions(config, null);
-		}
-
 		/// <summary>
 		/// Reads the grant file, creating nothing if it is absent - an empty store is the correct state
 		/// for a proxy that has never granted anything.
@@ -114,7 +108,7 @@ namespace EnderPearl.Permission
 				SortedSet<string> nodes = ParseNodes(subject.Value);
 				if (nodes.Count > 0)
 				{
-					permissions.grants[Normalize(subject.Key)] = nodes;
+					permissions.grants[ConfigValues.Normalize(subject.Key)] = nodes;
 				}
 			}
 			Logger.Info($"Loaded runtime permissions for {permissions.grants.Count} subject(s) from {permissionsPath}.");
@@ -146,12 +140,12 @@ namespace EnderPearl.Permission
 				return true;
 			}
 			return IsAdmin(xuid, displayName)
-				|| HasNode(xuid, displayName, COMMAND_PREFIX + Normalize(commandName));
+				|| HasNode(xuid, displayName, COMMAND_PREFIX + ConfigValues.Normalize(commandName));
 		}
 
 		/// <summary>
 		/// Whether this player may send <em>themselves</em> to a backend. Deliberately not consulted by
-		/// <c>/send</c>, failover or forced hosts - see <see cref="PermissionsConfig.MayJoinBackend"/>.
+		/// <c>/send</c>, failover or forced hosts - those act on the operator's behalf, not the player's.
 		/// </summary>
 		public bool MayJoinBackend(string? xuid, string? displayName, string backendName)
 		{
@@ -160,7 +154,7 @@ namespace EnderPearl.Permission
 				return true;
 			}
 			return IsAdmin(xuid, displayName)
-				|| HasNode(xuid, displayName, SERVER_PREFIX + Normalize(backendName));
+				|| HasNode(xuid, displayName, SERVER_PREFIX + ConfigValues.Normalize(backendName));
 		}
 
 		/// <summary>Nodes granted at runtime to this subject, not counting anything the config gives them.</summary>
@@ -168,7 +162,7 @@ namespace EnderPearl.Permission
 		{
 			lock (mutex)
 			{
-				return grants.TryGetValue(Normalize(subject), out SortedSet<string>? nodes)
+				return grants.TryGetValue(ConfigValues.Normalize(subject), out SortedSet<string>? nodes)
 					? new HashSet<string>(nodes)
 					: new HashSet<string>();
 			}
@@ -195,8 +189,8 @@ namespace EnderPearl.Permission
 		/// <returns>false when the subject already had the node, so callers can say so</returns>
 		public bool Grant(string subject, string node)
 		{
-			string key = Normalize(subject);
-			string value = Normalize(node);
+			string key = ConfigValues.Normalize(subject);
+			string value = ConfigValues.Normalize(node);
 			RequireUsable(key, value);
 			lock (mutex)
 			{
@@ -217,8 +211,8 @@ namespace EnderPearl.Permission
 		/// <returns>false when the subject did not have the node</returns>
 		public bool Revoke(string subject, string node)
 		{
-			string key = Normalize(subject);
-			string value = Normalize(node);
+			string key = ConfigValues.Normalize(subject);
+			string value = ConfigValues.Normalize(node);
 			lock (mutex)
 			{
 				if (!grants.TryGetValue(key, out SortedSet<string>? nodes) || !nodes.Remove(value))
@@ -240,11 +234,11 @@ namespace EnderPearl.Permission
 			var nodes = new List<string> { ADMIN };
 			foreach (string command in commandNames)
 			{
-				nodes.Add(COMMAND_PREFIX + Normalize(command));
+				nodes.Add(COMMAND_PREFIX + ConfigValues.Normalize(command));
 			}
 			foreach (string backend in backendNames)
 			{
-				nodes.Add(SERVER_PREFIX + Normalize(backend));
+				nodes.Add(SERVER_PREFIX + ConfigValues.Normalize(backend));
 			}
 			return new List<string>(nodes);
 		}
@@ -253,11 +247,11 @@ namespace EnderPearl.Permission
 
 		private bool HasNode(string? xuid, string? displayName, string node)
 		{
-			string wanted = Normalize(node);
+			string wanted = ConfigValues.Normalize(node);
 			lock (mutex)
 			{
-				return Contains(grants.TryGetValue(Normalize(xuid), out SortedSet<string>? byXuid) ? byXuid : null, wanted)
-					|| Contains(grants.TryGetValue(Normalize(displayName), out SortedSet<string>? byName) ? byName : null, wanted);
+				return Contains(grants.TryGetValue(ConfigValues.Normalize(xuid), out SortedSet<string>? byXuid) ? byXuid : null, wanted)
+					|| Contains(grants.TryGetValue(ConfigValues.Normalize(displayName), out SortedSet<string>? byName) ? byName : null, wanted);
 			}
 		}
 
@@ -329,7 +323,7 @@ namespace EnderPearl.Permission
 			{
 				if (element is JsonValue scalar && scalar.TryGetValue<string>(out string? name))
 				{
-					string normalized = Normalize(name);
+					string normalized = ConfigValues.Normalize(name);
 					if (normalized.Length > 0)
 					{
 						nodes.Add(normalized);
@@ -337,11 +331,6 @@ namespace EnderPearl.Permission
 				}
 			}
 			return nodes;
-		}
-
-		private static string Normalize(string? value)
-		{
-			return value?.Trim().ToLowerInvariant() ?? "";
 		}
 	}
 }

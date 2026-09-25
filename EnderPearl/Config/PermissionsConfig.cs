@@ -100,7 +100,7 @@ namespace EnderPearl.Config
 
 		public bool IsAdmin(string? xuid, string? displayName)
 		{
-			return Admins.Contains(Normalize(xuid)) || Admins.Contains(Normalize(displayName));
+			return Admins.Contains(ConfigValues.Normalize(xuid)) || Admins.Contains(ConfigValues.Normalize(displayName));
 		}
 
 		public bool IsAdminCommand(string commandName)
@@ -109,29 +109,11 @@ namespace EnderPearl.Config
 			// /perm would otherwise leave the command that grants permissions open to everyone, and
 			// the first player to find it could make themselves an administrator. There is no
 			// legitimate reason to open it, so it is not expressible.
-			string normalized = Normalize(commandName);
+			string normalized = ConfigValues.Normalize(commandName);
 			return ALWAYS_ADMIN.Contains(normalized) || AdminCommands.Contains(normalized);
 		}
 
-		/// <summary>Whether the player identified by xuid/displayName may run commandName.</summary>
-		public bool Allows(string? xuid, string? displayName, string commandName)
-		{
-			return !IsAdminCommand(commandName) || IsAdmin(xuid, displayName);
-		}
-
-		public bool IsAdminBackend(string backendName) => AdminBackends.Contains(Normalize(backendName));
-
-		/// <summary>
-		/// Whether this player may send <em>themselves</em> to a backend - with <c>/server</c>,
-		/// <c>/hub</c> or <c>/lobby</c>.
-		///
-		/// <p>Restricted backends are also hidden from the <c>/server</c> listing and from the command
-		/// tree's backend enum, so a player has no way to learn one exists.</p>
-		/// </summary>
-		public bool MayJoinBackend(string? xuid, string? displayName, string backendName)
-		{
-			return !IsAdminBackend(backendName) || IsAdmin(xuid, displayName);
-		}
+		public bool IsAdminBackend(string backendName) => AdminBackends.Contains(ConfigValues.Normalize(backendName));
 
 		private static IReadOnlySet<string> Lowercased(IEnumerable<string>? values)
 		{
@@ -144,15 +126,10 @@ namespace EnderPearl.Config
 			{
 				if (!string.IsNullOrWhiteSpace(value))
 				{
-					normalized.Add(Normalize(value));
+					normalized.Add(ConfigValues.Normalize(value));
 				}
 			}
 			return normalized;
-		}
-
-		private static string Normalize(string? value)
-		{
-			return value?.Trim().ToLowerInvariant() ?? "";
 		}
 	}
 }

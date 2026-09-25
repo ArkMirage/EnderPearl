@@ -18,8 +18,8 @@ namespace EnderPearl.Player
 	/// ordinary class documented as "call only while holding <see cref="ProxyConnection"/>'s mutex":</para>
 	///
 	/// <list type="bullet">
-	/// <item><see cref="EntityIds"/> - runtime/unique entity-id identity and the rewrite table</item>
-	/// <item><see cref="SwitchState"/> - the switch / failover / join-sequence locks and counters</item>
+	/// <item><see cref="PlayerEntityIds"/> - runtime/unique entity-id identity and the rewrite table</item>
+	/// <item><see cref="PlayerSwitchState"/> - the switch / failover / join-sequence locks and counters</item>
 	/// <item><see cref="Deferred"/> - packets buffered across a switch reset</item>
 	/// <item><see cref="Trace"/> - packet-tracing windows and sequence numbers</item>
 	/// </list>
@@ -61,12 +61,6 @@ namespace EnderPearl.Player
 		/// <summary>The login packet the proxy will forge toward the backend.</summary>
 		public required LoginPacket BackendLogin { get => ReadBackendLogin(); init => backendLogin = value; }
 
-		/// <summary>The player's entity-id identity: runtime/unique pairs and the rewrite table.</summary>
-		public PlayerEntityIds EntityIds => entityIds;
-
-		/// <summary>The switch / failover / join-sequence locks and counters.</summary>
-		public PlayerSwitchState SwitchState => switchState;
-
 		/// <summary>Packets buffered across a switch reset, replayed once the client respawns.</summary>
 		public DeferredSwitchState Deferred => deferred;
 
@@ -81,16 +75,10 @@ namespace EnderPearl.Player
 			}
 		}
 
-		/// <summary>
-		/// The player's address as anything outside this process should see it.
-		///
-		/// <p>For a Bedrock player that is simply their socket address. For a bridged player it is the
-		/// address the bridge stamped into their login.</p>
-		/// </summary>
+		/// <summary>The player's socket address.</summary>
 		public IPEndPoint ClientAddress()
 		{
-			IPEndPoint? bridgeAddress = ClientLogin?.BridgeClientAddress;
-			return bridgeAddress ?? client.RemoteEndPoint!;
+			return client.RemoteEndPoint!;
 		}
 
 		public void SetBackendLogin(LoginPacket login)
@@ -722,22 +710,6 @@ namespace EnderPearl.Player
 			lock (mutex)
 			{
 				return traceState.NextServerboundSequence();
-			}
-		}
-
-		public long ClientboundTraceSequence()
-		{
-			lock (mutex)
-			{
-				return traceState.ClientboundSequence();
-			}
-		}
-
-		public long ServerboundTraceSequence()
-		{
-			lock (mutex)
-			{
-				return traceState.ServerboundSequence();
 			}
 		}
 

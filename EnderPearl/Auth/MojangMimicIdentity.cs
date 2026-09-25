@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -25,12 +25,8 @@ namespace EnderPearl.Auth
 		// 玩家带来的正版 franchise 令牌是伪造的"标准答案"：镜像其载荷逐字节内容，
 		// 仅替换签名与 kid，任何环境/形状校验都无法区分。
 		private static volatile bool mimicActive;
-		private static volatile string? genuineHeaderJson;
 		private static volatile string? genuinePayloadJson;
 
-		public static void SetMimicActive() => mimicActive = true;
-		internal static bool MimicActive => mimicActive;
-		public static string? GenuineHeaderJson => genuineHeaderJson;
 		public static string? GenuinePayloadJson => genuinePayloadJson;
 
 		public static void CaptureGenuine(string token)
@@ -38,20 +34,12 @@ namespace EnderPearl.Auth
 			if (!mimicActive || genuinePayloadJson != null) return;
 			try
 			{
-				var parts = token.Split('.');
-				if (parts.Length < 2) return;
-				genuineHeaderJson = DecodeSegment(parts[0]);
-				genuinePayloadJson = DecodeSegment(parts[1]);
+				// DecodePayload throws on a token with no payload segment, which the catch below turns
+				// into "not a template" - the same outcome the old two-part split produced.
+				genuinePayloadJson = JwtHelper.DecodePayload(token);
 				Logger.Info("captured a genuine franchise token as the mimic template.");
 			}
 			catch { }
-		}
-
-		private static string DecodeSegment(string segment)
-		{
-			var b64 = segment.Replace('-', '+').Replace('_', '/');
-			switch (b64.Length % 4) { case 2: b64 += "=="; break; case 3: b64 += "="; break; }
-			return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b64));
 		}
 
 		// ---- 签名身份 -----------------------------------------------------------------
@@ -103,7 +91,7 @@ namespace EnderPearl.Auth
 			RSAParameters parameters = publicKey.ExportParameters(false);
 
 			var identity = new MojangMimicIdentity(signingRsa, kid,
-				Base64Url(parameters.Modulus!), Base64Url(parameters.Exponent!));
+				JwtHelper.Base64UrlEncode(parameters.Modulus!), JwtHelper.Base64UrlEncode(parameters.Exponent!));
 
 			return identity;
 		}
@@ -128,11 +116,6 @@ namespace EnderPearl.Auth
 		{
 			byte[] digest = SHA1.HashData(der);
 			return Convert.ToHexString(digest);
-		}
-
-		private static string Base64Url(byte[] data)
-		{
-			return Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 		}
 	}
 }

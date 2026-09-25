@@ -45,7 +45,7 @@ namespace EnderPearl.Server
 		public static ProxyPolicy Policy => Config.Policy;
 
 		/// <summary>Shorthand for the command config: pass-through sets and the proxy's command qualifier.</summary>
-		public static CommandsConfig Commands => Config.Commands;
+		public static CommandsConfig Commands => Config.Policy.Commands;
 
 		/// <summary>Everyone currently past login, keyed by XUID.</summary>
 		public static ConnectedPlayerRegistry ConnectedPlayers => Ready(connectedPlayers, nameof(ConnectedPlayers));
@@ -88,7 +88,7 @@ namespace EnderPearl.Server
 		/// </summary>
 		public static void Initialize(
 			ProxyConfig config,
-			ProxyPermissions? permissions,
+			ProxyPermissions permissions,
 			MojangMimicIdentity? mimicIdentity
 		)
 		{
@@ -108,9 +108,9 @@ namespace EnderPearl.Server
 			// is about to satisfy, because none of them are set until the end.
 			ConnectedPlayerRegistry players = new ConnectedPlayerRegistry(config.MaxPlayers);
 			// The config's own permissions are the floor and cannot be revoked at runtime; grants loaded
-			// from permissions.json sit on top, and an in-memory store stands in for a proxy with no file.
-			ProxyPermissions grants = permissions ?? ProxyPermissions.InMemory(config.Permissions);
-			ProxyPlayerEnum roster = new ProxyPlayerEnum(players, grants);
+			// from permissions.json sit on top. With no file, ProxyPermissions.Load returns an empty store.
+			ProxyPermissions grants = permissions;
+			ProxyPlayerEnum roster = new ProxyPlayerEnum(grants);
 			BackendDirectory backends = new BackendDirectory(
 				config.Backends,
 				config.Backend.Name,

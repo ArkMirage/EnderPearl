@@ -17,7 +17,7 @@ namespace EnderPearl.Relay
 	/// <item>BackendRelayPacketHandler.Diagnostics.cs - diagnostic drop/neuter switches</item>
 	/// <item>BackendRelayPacketHandler.InitialJoin.cs - internal transfers and XUID injection</item>
 	/// <item>BackendRelayPacketHandler.SwitchState.cs - switch-reset world-state capture, respawn acks</item>
-	/// <item>BackendRelayPacketHandler.Disconnect.cs - backend disconnect interception and fault recording</item>
+	/// <item>BackendRelayPacketHandler.Disconnect.cs - backend disconnect interception</item>
 	/// </list>
 	/// </summary>
 	public sealed partial class BackendRelayPacketHandler : PacketHandler
@@ -28,13 +28,6 @@ namespace EnderPearl.Relay
 		/// </summary>
 		private static readonly bool NO_COMMAND_INJECTION =
 			AppContext.TryGetSwitch("proxy.noCommandInjection", out bool noCmd) && noCmd;
-
-		/// <summary>
-		/// How long a switching player may be held while their new backend's packs are downloaded. Long
-		/// enough for a large pack on a local link, short enough that a silent backend is not mistaken
-		/// for a slow one.
-		/// </summary>
-		private const long PACK_FETCH_TIMEOUT_MILLIS = 20_000;
 
 		public required ProxyConnection Connection { get; init; }
 		public required BackendSession Backend { get; init; }
@@ -380,7 +373,7 @@ namespace EnderPearl.Relay
 					Connection.Client.Disconnect(reason);
 					return;
 				}
-				if (Failover.Begin(Connection, BackendName, reason, pendingProtocolFault))
+				if (Failover.Begin(Connection, BackendName, reason))
 				{
 					// BackendSession.OnTransportClosed disconnects the client right after this returns
 					// unless the flag is cleared, which would defeat the Failover before it has connected

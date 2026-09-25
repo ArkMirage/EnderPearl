@@ -118,7 +118,7 @@ namespace EnderPearl.Frontend
 				Session.ProxyConnection = connection;
 				PlayerCountChanged();
 				Logger.Info(
-					$"Player {clientLogin.AuthData.DisplayName} (XUID {clientLogin.AuthData.Xuid}) joined the proxy from {connection.ClientAddress()}{(clientLogin.IsJavaEdition() ? " (a bridged edition)" : "")}.");
+					$"Player {clientLogin.AuthData.DisplayName} (XUID {clientLogin.AuthData.Xuid}) joined the proxy from {connection.ClientAddress()}.");
 
 				ServerToClientHandshakePacket handshake = new ServerToClientHandshakePacket
 				{

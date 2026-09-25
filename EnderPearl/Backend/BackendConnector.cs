@@ -6,7 +6,6 @@ using EnderPearl.Auth;
 using EnderPearl.Command;
 using EnderPearl.Permission;
 using EnderPearl.Config;
-using EnderPearl.Diagnostics;
 using EnderPearl.Protocol;
 using EnderPearl.Player;
 using global::Protocol.Packets;
