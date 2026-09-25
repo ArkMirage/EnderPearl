@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -6,150 +6,76 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Protocol;
 using EnderPearl.Protocol;
-using EnderPearl.Logging;
+using EnderPearl.Core;
 
 namespace EnderPearl.Config
 {
-	/// <summary>
-	/// The whole proxy configuration, loaded from <c>config.json</c>.
-	/// </summary>
-	/// <remarks>
-	/// <para>Each section of the file belongs to one class in this package, which owns three things:
-	/// a <c>From(JsonConfig)</c> that reads it, the defaults those reads fall back to
-	/// (<c>Defaults()</c> or constants), and a <c>DefaultSection()</c> that writes them into the file
-	/// generated on first start. To add a setting, touch only the owning section's file - parse it,
-	/// give it a default, add it to the template - and this class composes the rest.</para>
-	///
-	/// <para><see cref="ProxyConfig"/> itself owns only the top-level scalars (<c>listener</c>,
-	/// <c>motd</c>, compression, pack paths...) and the composition.</para>
-	/// </remarks>
-	public sealed class ProxyConfig
+		/// <summary>
+		/// The whole proxy configuration, loaded from <c>config.json</c>.
+		/// </summary>
+		/// <remarks>
+		/// <para>Each section of the file belongs to one class in this package, which owns three things:
+		/// a <c>From(JsonConfig)</c> that reads it, the defaults those reads fall back to
+		/// (<c>Defaults()</c> or constants), and a <c>DefaultSection()</c> that writes them into the file
+		/// generated on first start. To add a setting, touch only the owning section's file - parse it,
+		/// give it a default, add it to the template - and this class composes the rest.</para>
+		///
+		/// <para><see cref="ProxyConfig"/> itself owns only the top-level scalars (<c>listener</c>,
+		/// <c>motd</c>, compression, pack paths...) and the composition.</para>
+		/// </remarks>
+		public sealed class ProxyConfig
 	{
 		private const string DEFAULT_LISTEN_HOST = "0.0.0.0";
 		private const int DEFAULT_LISTEN_PORT = 19132;
 
-		public IPEndPoint ListenAddress { get; }
-
-		public BackendConfig Backend { get; }
-
-		public LinkedHashMap<string, BackendConfig> Backends { get; }
-
-		public string HubBackendName { get; }
-
-		public BedrockCodecInfo? BackendProtocol { get; }
-
-		public ProxyPolicy Policy { get; }
-
-		public string Motd { get; }
-
-		public string SubMotd { get; }
-
-		public string GameType { get; }
-
-		public int MaxPlayers { get; }
-		public int KeyForgePort { get; }
-
-		public PacketCompressionAlgorithm CompressionAlgorithm { get; }
-
-		public int CompressionThreshold { get; }
-
-		public string? BackendPackCacheDir { get; }
-
-		public string PublicAddress { get; }
-
-		public ProxyConfig(
-			IPEndPoint listenAddress,
-			BackendConfig backend,
-			LinkedHashMap<string, BackendConfig> backends,
-			string hubBackendName,
-			BedrockCodecInfo? backendProtocol,
-			ProxyPolicy policy,
-			string motd,
-			string subMotd,
-			string gameType,
-			int maxPlayers,
-			PacketCompressionAlgorithm compressionAlgorithm,
-			int compressionThreshold,
-			int keyForgePort)
-			: this(listenAddress, backend, backends, hubBackendName, backendProtocol, policy,
-				motd, subMotd, gameType, maxPlayers, compressionAlgorithm, compressionThreshold,
-				 backendPackCacheDir: null, publicAddress: "", keyForgePort)
+		private static T Checked<T>(T value, Func<T, bool> ok, string message)
+	{
+		if (!ok(value))
 		{
+			throw new ArgumentException(message);
 		}
+		return value;
+	}
 
-		public ProxyConfig(
-			IPEndPoint listenAddress,
-			BackendConfig backend,
-			LinkedHashMap<string, BackendConfig> backends,
-			string hubBackendName,
-			BedrockCodecInfo? backendProtocol,
-			ProxyPolicy policy,
-			string motd,
-			string subMotd,
-			string gameType,
-			int maxPlayers,
-			PacketCompressionAlgorithm compressionAlgorithm,
-			int compressionThreshold,
-			string? backendPackCacheDir,
-			string publicAddress,
-			int keyForgePort)
-		{
-			if (listenAddress == null)
-			{
-				throw new ArgumentNullException(nameof(listenAddress));
-			}
-			if (backend == null)
-			{
-				throw new ArgumentNullException(nameof(backend));
-			}
-			if (backends == null || backends.Count == 0)
-			{
-				throw new ArgumentException("backends cannot be empty");
-			}
-			if (string.IsNullOrWhiteSpace(hubBackendName))
-			{
-				throw new ArgumentException("hubBackendName cannot be blank");
-			}
-			if (policy == null)
-			{
-				throw new ArgumentNullException(nameof(policy));
-			}
-			if (string.IsNullOrWhiteSpace(motd))
-			{
-				throw new ArgumentException("motd cannot be blank");
-			}
-			if (subMotd == null)
-			{
-				throw new ArgumentNullException(nameof(subMotd));
-			}
-			if (string.IsNullOrWhiteSpace(gameType))
-			{
-				throw new ArgumentException("gameType cannot be blank");
-			}
-			if (maxPlayers < 1)
-			{
-				throw new ArgumentException("maxPlayers must be positive");
-			}
-			if (compressionThreshold < 0)
-			{
-				throw new ArgumentException("compressionThreshold cannot be negative");
-			}
-			ListenAddress = listenAddress;
-			Backend = backend;
-			Backends = backends;
-			HubBackendName = hubBackendName;
-			BackendProtocol = backendProtocol;
-			Policy = policy;
-			Motd = motd;
-			SubMotd = subMotd;
-			GameType = gameType;
-			MaxPlayers = maxPlayers;
-			KeyForgePort = keyForgePort;
-			CompressionAlgorithm = compressionAlgorithm;
-			CompressionThreshold = compressionThreshold;
-			BackendPackCacheDir = backendPackCacheDir;
-			PublicAddress = publicAddress;
-		}
+		public IPEndPoint ListenAddress { get; init; } = Checked(InetEndpoints.Resolve(DEFAULT_LISTEN_HOST, DEFAULT_LISTEN_PORT), a => a != null, "listenAddress cannot be null");
+
+		public BackendConfig Backend { get; init; } = BackendConfig.DefaultAll()[BackendConfig.DEFAULT_NAME];
+
+		private LinkedHashMap<string, BackendConfig> backends = BackendConfig.DefaultAll();
+
+		public LinkedHashMap<string, BackendConfig> Backends { get => backends; init => backends = Checked(value, b => b != null && b.Count > 0, "backends cannot be empty"); }
+
+		public string HubBackendName { get; init; } = BackendConfig.DEFAULT_NAME;
+
+		public BedrockCodecInfo? BackendProtocol { get; init; }
+
+		public required ProxyPolicy Policy { get; init; }
+
+		private string motd = "Endstone Proxy";
+
+		public string Motd { get => motd; init => motd = Checked(value, v => !string.IsNullOrWhiteSpace(v), "motd cannot be blank"); }
+
+		public string SubMotd { get; init; } = "Bedrock " + BedrockCodecInfo.Current.MinecraftVersion;
+
+		private string gameType = "Survival";
+
+		public string GameType { get => gameType; init => gameType = Checked(value, v => !string.IsNullOrWhiteSpace(v), "gameType cannot be blank"); }
+
+		private int maxPlayers = 20;
+
+		public int MaxPlayers { get => maxPlayers; init => maxPlayers = Checked(value, v => v >= 1, "maxPlayers must be positive"); }
+
+		public int KeyForgePort { get; init; } = 19139;
+
+		public PacketCompressionAlgorithm CompressionAlgorithm { get; init; } = PacketCompressionAlgorithm.ZLib;
+
+		private int compressionThreshold;
+
+		public int CompressionThreshold { get => compressionThreshold; init => compressionThreshold = Checked(value, v => v >= 0, "compressionThreshold cannot be negative"); }
+
+		public string? BackendPackCacheDir { get; init; }
+
+		public string PublicAddress { get; init; } = "";
 
 		public FailoverConfig Failover => Policy.Failover;
 
@@ -205,37 +131,37 @@ namespace EnderPearl.Config
 			// The global protocol pin applies to every backend without its own "protocol"; null ("auto")
 			// lets each connection be probed at startup instead.
 			BedrockCodecInfo? backendProtocol =
-				CanonicalProtocol.FromConfig(config.GetString("protocol", "auto"));
-			string defaultSubMotd = "Bedrock " + CanonicalProtocol.Newest().MinecraftVersion;
-
-			
+				BedrockCodecInfo.FromConfig(config.GetString("protocol", "auto"));
+			string defaultSubMotd = "Bedrock " + BedrockCodecInfo.Current.MinecraftVersion;
 
 			FailoverConfig failover = FailoverConfig.From(config, hubBackendName);
-			return new ProxyConfig(
-				InetEndpoints.Resolve(listenHost, listenPort),
-				defaultBackend,
-				backends,
-				hubBackendName,
-				backendProtocol,
-				new ProxyPolicy(
-					failover,
-					BackendSwitchConfig.From(config),
-					PermissionsConfig.From(config),
-					SecurityConfig.From(config),
-					ForcedHostsConfig.From(config, backends),
-					JoinConfig.From(config, failover),
-					CommandsConfig.From(config)
-				),
-				config.GetString("motd", "Endstone Proxy"),
-				config.GetString("subMotd", defaultSubMotd),
-				config.GetString("gameType", "Survival"),
-				config.GetInt("maxPlayers", 20),
-				Compression(config.GetString("compression", "zlib")),
-				config.GetInt("compressionThreshold", 0),
-				Path.GetFullPath(Path.Combine(configDir, "cache", "packs")),
-				config.GetString("publicAddress", "").Trim(),
-				config.GetInt("keyForge.port", 19139)
-			);
+			return new ProxyConfig
+			{
+				ListenAddress = InetEndpoints.Resolve(listenHost, listenPort),
+				Backend = defaultBackend,
+				Backends = backends,
+				HubBackendName = hubBackendName,
+				BackendProtocol = backendProtocol,
+				Policy = new ProxyPolicy
+				{
+					Failover = failover,
+					BackendSwitch = BackendSwitchConfig.From(config),
+					Permissions = PermissionsConfig.From(config),
+					Security = SecurityConfig.From(config),
+					ForcedHosts = ForcedHostsConfig.From(config, backends),
+					Join = JoinConfig.From(config, failover),
+					Commands = CommandsConfig.From(config)
+				},
+				Motd = config.GetString("motd", "Endstone Proxy"),
+				SubMotd = config.GetString("subMotd", defaultSubMotd),
+				GameType = config.GetString("gameType", "Survival"),
+				MaxPlayers = config.GetInt("maxPlayers", 20),
+				CompressionAlgorithm = Compression(config.GetString("compression", "zlib")),
+				CompressionThreshold = config.GetInt("compressionThreshold", 0),
+				BackendPackCacheDir = Path.GetFullPath(Path.Combine(configDir, "cache", "packs")),
+				PublicAddress = config.GetString("publicAddress", "").Trim(),
+				KeyForgePort = config.GetInt("keyForge.port", 19139)
+			};
 		}
 
 		private static (string Name, BackendConfig Backend) FirstBackend(LinkedHashMap<string, BackendConfig> backends)
@@ -250,7 +176,7 @@ namespace EnderPearl.Config
 		/// <summary>The configuration written when no config file exists yet: every section's template composed.</summary>
 		public static JsonObject DefaultConfig()
 		{
-			string defaultSubMotd = "Bedrock " + CanonicalProtocol.Newest().MinecraftVersion;
+			string defaultSubMotd = "Bedrock " + BedrockCodecInfo.Current.MinecraftVersion;
 			return new JsonObject
 			{
 				["listener"] = new JsonObject
@@ -300,8 +226,8 @@ namespace EnderPearl.Config
 		}
 	}
 
-	/// <summary>Resolves host names the way Java's InetSocketAddress constructor does.</summary>
-	public static class InetEndpoints
+		/// <summary>Resolves host names the way Java's InetSocketAddress constructor does.</summary>
+		public static class InetEndpoints
 	{
 		private static readonly HashSet<string> UnresolutionWarnedFor = new();
 

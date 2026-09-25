@@ -2,13 +2,14 @@
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
-using EnderPearl.Crypto;
-using EnderPearl.Crypto;
-using EnderPearl.Net;
+using EnderPearl.Auth;
+using EnderPearl.Core;
 using global::Protocol;
 using global::Protocol.Codec.Connection.Encryption;
 using global::Protocol.Packets;
-using EnderPearl.Logging;
+using EnderPearl.Player;
+using EnderPearl.Relay;
+using EnderPearl.Server;
 
 namespace EnderPearl.Backend
 {
@@ -16,61 +17,23 @@ namespace EnderPearl.Backend
 	/// Drives the proxy-to-backend login sequence: network settings, the forged offline login, the
 	/// encryption handshake, then hands both legs over to the relay handlers.
 	/// </summary>
-	public sealed class BackendInitialPacketHandler : IPacketHandler, IDisconnectNotifier
+	public sealed class BackendInitialPacketHandler : PacketHandler
 	{
-		private readonly ProxyConnection connection;
-		private readonly BackendSession backend;
-		private readonly string backendName;
-		private readonly BackendCommandRouter commandRouter;
-		private readonly EnderPearl.Command.ProxyCommandRegistry commandRegistry;
-		private readonly BackendDirectory backendDirectory;
-		private readonly BackendSwitcher backendSwitcher;
-		private readonly BackendActivation activation;
-		private readonly Func<string, string> verifiedXuidLookup;
-		private readonly BackendFailover failover;
-		private readonly JoinFailover joinFailover;
-		private readonly EnderPearl.Permission.ProxyPermissions permissions;
-		private readonly EnderPearl.Command.ProxyPlayerEnum playerEnum;
-		private readonly EnderPearl.Config.CommandsConfig commandsConfig;
-		/// <summary>The command names this backend has taken over; resolved once, since backendName is fixed.</summary>
-		private readonly System.Collections.Generic.IReadOnlySet<string> passthroughCommands;
+		public required ProxyConnection Connection { get; init; }
+		public required BackendSession Backend { get; init; }
+		public required string BackendName { get; init; }
+		public required BackendCommandRouter CommandRouter { get; init; }
+		public required EnderPearl.Command.ProxyCommandManager CommandManager { get; init; }
+		public required BackendSwitcher BackendSwitcher { get; init; }
+		public required BackendActivation Activation { get; init; }
+		public required BackendFailover Failover { get; init; }
+		public required JoinFailover JoinFailover { get; init; }
+
+		private System.Collections.Generic.IReadOnlySet<string> PassthroughCommands => ProxyServer.Commands.PassthroughFor(BackendName);
+
 		private bool warnedPreHandshakeDisconnect;
 
-		public BackendInitialPacketHandler(
-			ProxyConnection connection,
-			BackendSession backend,
-			string backendName,
-			BackendCommandRouter commandRouter,
-			EnderPearl.Command.ProxyCommandRegistry commandRegistry,
-			BackendDirectory backendDirectory,
-			BackendSwitcher backendSwitcher,
-			BackendActivation activation,
-			Func<string, string>? verifiedXuidLookup,
-			BackendFailover failover,
-			JoinFailover joinFailover,
-			EnderPearl.Permission.ProxyPermissions permissions,
-			EnderPearl.Command.ProxyPlayerEnum playerEnum,
-			EnderPearl.Config.CommandsConfig? commandsConfig
-		)
-		{
-			this.connection = connection;
-			this.backend = backend;
-			this.backendName = backendName;
-			this.commandRouter = commandRouter;
-			this.commandRegistry = commandRegistry;
-			this.backendDirectory = backendDirectory;
-			this.backendSwitcher = backendSwitcher;
-			this.activation = activation;
-			this.verifiedXuidLookup = verifiedXuidLookup ?? (_ => "");
-			this.failover = failover;
-			this.joinFailover = joinFailover;
-			this.permissions = permissions;
-			this.playerEnum = playerEnum;
-			this.commandsConfig = commandsConfig ?? EnderPearl.Config.CommandsConfig.Defaults();
-			this.passthroughCommands = this.commandsConfig.PassthroughFor(backendName);
-		}
-
-		public PacketSignal Handle(IPacket packet)
+		public override PacketSignal Handle(IPacket packet)
 		{
 			switch (packet)
 			{
@@ -92,15 +55,15 @@ namespace EnderPearl.Backend
 			// Java: threshold > 0 -> compress with the negotiated algorithm, else NONE. (The client
 			// leg differs by design: there the proxy itself sends threshold 0, which modern clients
 			// treat as compress-everything.)
-			backend.Session.mOpenCompression = true;
-			backend.Session.mCompressionAlgorithm = packet.CompressionThreshold > 0
+			Backend.Session.mOpenCompression = true;
+			Backend.Session.mCompressionAlgorithm = packet.CompressionThreshold > 0
 				? MapCompression(packet.CompressionAlgorithm)
 				: CompressionAlgorithm.None;
 			if (ProxyConnection.IsPacketTracingConfigured())
 			{
-				LogBackendLoginCapabilities(connection.BackendLogin);
+				LogBackendLoginCapabilities(Connection.BackendLogin);
 			}
-			backend.SendPacketImmediately(connection.BackendLogin);
+			Backend.SendPacketImmediately(Connection.BackendLogin);
 			return PacketSignal.Handled;
 		}
 
@@ -118,23 +81,23 @@ namespace EnderPearl.Backend
 		{
 			if (ProxyConnection.IsPacketTracingConfigured())
 			{
-				Logger.Info($"Backend {backendName} sent PlayStatus before handshake: {packet.Status}.");
+				Logger.Info($"Backend {BackendName} sent PlayStatus before handshake: {packet.Status}.");
 			}
 			if (IsLoginFailure(packet.Status))
 			{
 				// The backend has already said no; failing here turns a version mismatch into an
 				// immediate move to the next candidate instead of waiting out RakNet's timeout.
 				Logger.Info(
-					$"Backend {backendName} rejected the proxy login ({packet.Status}); treating as an immediate failure instead of waiting for the session to time out. If that backend runs a newer Minecraft version, set backend.{backendName}.protocol.");
+					$"Backend {BackendName} rejected the proxy login ({packet.Status}); treating as an immediate failure instead of waiting for the session to time out. If that backend runs a newer Minecraft version, set backend.{BackendName}.protocol.");
 				warnedPreHandshakeDisconnect = true;
-				backend.SetDisconnectClientOnClose(false);
+				Backend.SetDisconnectClientOnClose(false);
 				var failure = new InvalidOperationException(
-					"Backend " + backendName + " rejected the login: " + packet.Status);
-				if (joinFailover == null || !joinFailover.HandleJoinFailure(connection, backendName, failure.Message))
+					"Backend " + BackendName + " rejected the login: " + packet.Status);
+				if (!JoinFailover.HandleJoinFailure(Connection, BackendName, failure.Message))
 				{
-					activation.OnFailure(backend, failure);
+					Activation.OnFailure(Backend, failure);
 				}
-				backend.Disconnect("Login rejected");
+				Backend.Disconnect("Login rejected");
 			}
 			return PacketSignal.Handled;
 		}
@@ -147,20 +110,20 @@ namespace EnderPearl.Backend
 
 		private PacketSignal Handle(DisconnectPacket packet)
 		{
-			string kickMessage = Messages.DisconnectMessage(packet);
+			string disconnectMessage = ProxyPackets.DisconnectMessage(packet);
 			Logger.Info(
-				$"Backend {backendName} disconnected before handshake: reason={packet.Reason} skipped={packet.Messages.Index == 1} message={kickMessage} filtered={Messages.DisconnectFilteredMessage(packet)}.");
+				$"Backend {BackendName} disconnected before handshake: reason={packet.Reason} skipped={packet.Messages.Index == 1} message={disconnectMessage} filtered={ProxyPackets.DisconnectFilteredMessage(packet)}.");
 			WarnPreHandshakeDisconnect(packet);
 			warnedPreHandshakeDisconnect = true;
-			 backend.SetDisconnectClientOnClose(false);
-			 var failure = new InvalidOperationException(
-			 "Backend " + backendName + " rejected the proxy login pre-handshake: " + packet.Reason+
-			(string.IsNullOrEmpty(kickMessage) ? "" : " (" + kickMessage + ")"));
-			     if (joinFailover == null || !joinFailover.HandleJoinFailure(connection, backendName, failure.Message))
-				 {
-				 activation.OnFailure(backend, failure);
-			     }
-			 backend.Disconnect("Login rejected");
+			Backend.SetDisconnectClientOnClose(false);
+			var failure = new InvalidOperationException(
+				"Backend " + BackendName + " rejected the proxy login pre-handshake: " + packet.Reason +
+				(string.IsNullOrEmpty(disconnectMessage) ? "" : " (" + disconnectMessage + ")"));
+			if (!JoinFailover.HandleJoinFailure(Connection, BackendName, failure.Message))
+			{
+				Activation.OnFailure(Backend, failure);
+			}
+			Backend.Disconnect("Login rejected");
 			return PacketSignal.Handled;
 		}
 
@@ -176,52 +139,50 @@ namespace EnderPearl.Backend
 				byte[] serverKeyBytes = x5uBytes;
 				byte[] salt = JwtHelper.Base64UrlDecode(
 					System.Text.Json.JsonDocument.Parse(JwtHelper.DecodePayload(token)).RootElement.GetProperty("salt").GetString()!);
-				byte[] key = BedrockCrypto.SecretKey(connection.KeyPair, serverKeyBytes, salt);
+				byte[] key = BedrockCrypto.SecretKey(Connection.KeyPair, serverKeyBytes, salt);
 
-				backend.Session.mCryptoManager = new CryptoManager(key);
-				backend.Session.mOpenCrypto = true;
-				backend.SendPacketImmediately(new ClientToServerHandshakePacket());
-				backend.SetPacketHandler(new BackendRelayPacketHandler(
-					connection,
-					backend,
-					backendName,
-					activation,
-					new EnderPearl.Command.AvailableCommandsInjector(
-						commandRegistry,
+				Backend.Session.mCryptoManager = new CryptoManager(key);
+				Backend.Session.mOpenCrypto = true;
+				Backend.SendPacketImmediately(new ClientToServerHandshakePacket());
+				Backend.SetPacketHandler(new BackendRelayPacketHandler
+				{
+					Connection = Connection,
+					Backend = Backend,
+					BackendName = BackendName,
+					Activation = Activation,
+					CommandsInjector = new EnderPearl.Command.AvailableCommandsInjector(
+						CommandManager,
 						VisibleBackendNames(),
-						AdvertiseCommand,
-						playerEnum
+						AdvertiseCommand
 					),
-					verifiedXuidLookup,
-					failover,
-					joinFailover,
-					backendDirectory,
-					backendSwitcher
-				));
-				activation.OnReady(backend);
-				connection.Client().SetPacketHandler(new ClientRelayPacketHandler(
-					connection,
+					Failover = Failover,
+					JoinFailover = JoinFailover,
+					BackendSwitcher = BackendSwitcher
+				});
+				Activation.OnReady(Backend);
+				Connection.Client.SetPacketHandler(new ClientRelayPacketHandler(
+					Connection,
 					new EnderPearl.Command.ProxyCommandInterceptor(
-						commandRegistry,
-						passthroughCommands,
-						commandsConfig.Qualifier
+						CommandManager,
+						PassthroughCommands,
+						ProxyServer.Commands.Qualifier
 					),
-					commandRouter
+					CommandRouter
 				));
-				Logger.Info($"Connected player {connection.ClientLogin.AuthData.DisplayName} to backend {backendName}.");
+				Logger.Info($"Connected player {Connection.ClientLogin.AuthData.DisplayName} to backend {BackendName}.");
 				return PacketSignal.Handled;
 			}
 			catch (Exception exception)
 			{
-				activation.OnFailure(backend, exception);
+				Activation.OnFailure(Backend, exception);
 				throw new InvalidOperationException("Unable to complete backend encryption handshake", exception);
 			}
 		}
 
-		public void OnDisconnected(string reason)
+		public override void OnDisconnected(string reason)
 		{
-			Logger.Info($"Backend {backendName} closed before completing the encryption handshake: {reason}.");
-			if (joinFailover != null && joinFailover.HandleJoinFailure(connection, backendName, reason))
+			Logger.Info($"Backend {BackendName} closed before completing the encryption handshake: {reason}.");
+			if (JoinFailover.HandleJoinFailure(Connection, BackendName, reason))
 			{
 				return;
 			}
@@ -230,12 +191,12 @@ namespace EnderPearl.Backend
 				return;
 			}
 			Logger.Info(
-				$"WARNING: Backend {backendName} did not accept the proxy's offline backend login. If the backend has online mode enabled, proxied joins will not work; set the backend to offline mode and secure it with the EnderPearlGuard plugin.");
+				$"WARNING: Backend {BackendName} did not accept the proxy's offline backend login. If the backend has online mode enabled, proxied joins will not work; set the backend to offline mode and secure it with the EnderPearlGuard plugin.");
 			// Nobody else has taken this failure (no disconnect packet arrived, no join candidate
-			     // moved): notify the activation so a pending switch abandons right away instead of
-      // leaving a dead pendingBackend reference feeding the relay's drop-gate.
-			 activation.OnFailure(backend, new InvalidOperationException(
-			 "Backend " + backendName + " closed before completing the encryption handshake: " + reason));
+			// moved): notify the activation so a pending switch abandons right away instead of
+			// leaving a dead pendingBackend reference feeding the relay's drop-gate.
+			Activation.OnFailure(Backend, new InvalidOperationException(
+				"Backend " + BackendName + " closed before completing the encryption handshake: " + reason));
 		}
 
 		/// <summary>
@@ -250,10 +211,10 @@ namespace EnderPearl.Backend
 		/// </summary>
 		private bool AdvertiseCommand(string commandName)
 		{
-			return !passthroughCommands.Contains(commandName.ToLowerInvariant())
-				&& permissions.Allows(
-					connection.ClientLogin.AuthData.Xuid,
-					connection.ClientLogin.AuthData.DisplayName,
+			return !PassthroughCommands.Contains(commandName.ToLowerInvariant())
+				&& ProxyServer.Permissions.Allows(
+					Connection.ClientLogin.AuthData.Xuid,
+					Connection.ClientLogin.AuthData.DisplayName,
 					commandName
 				);
 		}
@@ -264,12 +225,12 @@ namespace EnderPearl.Backend
 		/// </summary>
 		private List<string> VisibleBackendNames()
 		{
-			string xuid = connection.ClientLogin.AuthData.Xuid;
-			string displayName = connection.ClientLogin.AuthData.DisplayName;
+			string xuid = Connection.ClientLogin.AuthData.Xuid;
+			string displayName = Connection.ClientLogin.AuthData.DisplayName;
 			var visible = new List<string>();
-			foreach (string name in backendDirectory.BackendNames())
+			foreach (string name in ProxyServer.BackendDirectory.BackendNames())
 			{
-				if (permissions.MayJoinBackend(xuid, displayName, name))
+				if (ProxyServer.Permissions.MayJoinBackend(xuid, displayName, name))
 				{
 					visible.Add(name);
 				}
@@ -282,8 +243,8 @@ namespace EnderPearl.Backend
 			warnedPreHandshakeDisconnect = true;
 			string text = string.Join(" ",
 				packet.Reason.ToString(),
-				Messages.DisconnectMessage(packet),
-				Messages.DisconnectFilteredMessage(packet)
+				ProxyPackets.DisconnectMessage(packet),
+				ProxyPackets.DisconnectFilteredMessage(packet)
 			).ToLowerInvariant();
 			if (text.Contains("online")
 				|| text.Contains("auth")
@@ -292,11 +253,11 @@ namespace EnderPearl.Backend
 				|| text.Contains("notauthenticated"))
 			{
 				Logger.Info(
-					$"WARNING: Backend {backendName} appears to require online/authenticated backend logins. The proxy uses a forged offline backend login, so this backend must have online mode disabled or proxied joins will not work.");
+					$"WARNING: Backend {BackendName} appears to require online/authenticated backend logins. The proxy uses a forged offline backend login, so this backend must have online mode disabled or proxied joins will not work.");
 				return;
 			}
 			Logger.Info(
-				$"WARNING: Backend {backendName} rejected the proxy login before the encryption handshake. If online mode is enabled on that backend, proxied joins will not work until it is disabled.");
+				$"WARNING: Backend {BackendName} rejected the proxy login before the encryption handshake. If online mode is enabled on that backend, proxied joins will not work until it is disabled.");
 		}
 
 		private void LogBackendLoginCapabilities(LoginPacket login)

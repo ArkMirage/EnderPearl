@@ -1,0 +1,71 @@
+{
+  "listener": {
+    "host": "0.0.0.0",
+    "port": 19132
+  },
+  "protocol": "auto",
+  "backends": {
+    "default": {
+      "host": "127.0.0.1",
+      "port": 19133
+    }
+  },
+  "hubBackend": "default",
+  "failover": {
+    "enabled": true,
+    "fallbacks": [
+      "default"
+    ],
+    "onBackendDisconnect": "auto"
+  },
+  "protocolFault": {
+    "action": "disconnect",
+    "message": "Disconnected: the server sent something this proxy could not relay. This has been logged - please report it.",
+    "logFile": "logs/protocol-errors.log"
+  },
+  "switch": {
+    "retryWindowMillis": 30000,
+    "retryDelayMillis": 3000,
+    "timeoutMillis": 20000,
+    "connectTimeoutMillis": 5000
+  },
+  "join": {
+    "attemptsPerBackend": 1
+  },
+  "permissions": {
+    "admins": [],
+    "adminCommands": [
+      "alert",
+      "glist",
+      "perm",
+      "send"
+    ]
+  },
+  "commands": {
+    "passthrough": [],
+    "qualifier": "proxy:"
+  },
+  "security": {
+    "sendConnectionCookie": true,
+    "maxConnectionsPerAddress": 64,
+    "maxConnectionAttempts": 8,
+    "connectionAttemptWindowMillis": 10000,
+    "requireXuid": true,
+    "commandCooldownMillis": 1000
+  },
+  "forcedHosts": {},
+  "motd": "Endstone Proxy",
+  "subMotd": "Bedrock 1.26.40",
+  "gameType": "Survival",
+  "maxPlayers": 20,
+  "compression": "zlib",
+  "compressionThreshold": 0,
+  "resourcePacks": {
+    "dir": "",
+    "cacheBackendPacks": true
+  },
+  "publicAddress": "",
+  "keyForge": {
+    "port": 19139
+  }
+}

@@ -1,36 +1,39 @@
 ﻿using System.Text;
-using EnderPearl.Logging;
+using EnderPearl.Core;
 
 namespace EnderPearl.Command
 {
 	/// <summary>
-	/// Reads commands from the proxy's own terminal.
+	/// Reads lines from the proxy's own terminal and runs the command each one names.
 	///
-	/// <para>Runs on a daemon thread so a proxy started without a console — under <c>nohup</c>, as a
-	/// service, with stdin closed — simply sees end-of-stream and carries on serving players rather than
-	/// blocking a process on a read that will never return.</para>
+	/// <para>This class is the reader and nothing else: it resolves a line to a
+	/// <see cref="ProxyCommand"/> through <see cref="ProxyCommandManager"/> and invokes it. Which commands
+	/// exist is decided entirely outside it — <see cref="SystemCommands"/> registers the proxy's own at
+	/// startup and a plugin registers its own — and none of that reaches here.</para>
 	///
-	/// <para>The console is an administrator by definition (see <see cref="ConsoleSender"/>), which makes it the
-	/// way out of a proxy nobody can administer: a fresh install with no <c>permissions.admins</c> entry
+	/// <para>Runs on a daemon thread. A proxy started without a terminal — under <c>nohup</c>, as a
+	/// service, with stdin closed — reads end-of-stream once and retires the reader, carrying on serving
+	/// players rather than blocking the process or spinning on a read that will never return.</para>
+	///
+	/// <para>The console is an administrator by definition (see <see cref="CommandSender"/>), which makes it
+	/// the way out of a proxy nobody can administer: a fresh install with no <c>permissions.admins</c> entry
 	/// can grant the first <c>admin</c> node from here.</para>
 	/// </summary>
 	public sealed class ProxyConsole
 	{
-		private readonly NetworkCommands networkCommands;
-		private readonly Action shutdown;
+		private readonly ProxyCommandManager manager;
 		private readonly Stream input;
-		private volatile bool running;
 		private Thread? thread;
+		private volatile bool running;
 
-		public ProxyConsole(NetworkCommands networkCommands, Action shutdown)
-			: this(networkCommands, shutdown, Console.OpenStandardInput())
+		public ProxyConsole(ProxyCommandManager manager)
+			: this(manager, Console.OpenStandardInput())
 		{
 		}
 
-		internal ProxyConsole(NetworkCommands networkCommands, Action shutdown, Stream input)
+		private ProxyConsole(ProxyCommandManager manager, Stream input)
 		{
-			this.networkCommands = networkCommands ?? throw new ArgumentNullException(nameof(networkCommands));
-			this.shutdown = shutdown ?? throw new ArgumentNullException(nameof(shutdown));
+			this.manager = manager ?? throw new ArgumentNullException(nameof(manager));
 			this.input = input ?? throw new ArgumentNullException(nameof(input));
 		}
 
@@ -55,6 +58,32 @@ namespace EnderPearl.Command
 			running = false;
 		}
 
+		/// <summary>
+		/// Runs one line as typed. A leading slash is accepted so an in-game command can be pasted in
+		/// unchanged, and a blank line just earns the next prompt.
+		/// </summary>
+		public void Execute(string? line)
+		{
+			if (string.IsNullOrWhiteSpace(line))
+			{
+				return;
+			}
+			string trimmed = line.Trim();
+			if (trimmed.StartsWith("/"))
+			{
+				trimmed = trimmed.Substring(1);
+			}
+			// Console scope: a command that only exists in chat, such as /server, cannot be run from here
+			// and is reported unknown rather than half-run.
+			ProxyCommand? command = manager.Find(trimmed, CommandScope.Console);
+			if (command == null)
+			{
+				Logger.Error("Unknown command: " + ProxyCommandManager.CommandName(trimmed) + ". Type 'help' for commands.");
+				return;
+			}
+			command.Handler(CommandSender.Console(), trimmed, CommandArguments.Split(trimmed));
+		}
+
 		private void ReadLoop()
 		{
 			try
@@ -66,14 +95,10 @@ namespace EnderPearl.Command
 					string? line = reader.ReadLine();
 					if (line == null)
 					{
-						Logger.Error("Unknown command!");
-						continue;
-					}
-
-					if (line == string.Empty)
-					{
-						Logger.Error("Unknown command!");
-						continue;
+						// End of stream is how a proxy without a terminal ends: there is no further input
+						// to wait for, and pretending otherwise would log an error a second forever.
+						Logger.Info("Console input closed; the proxy keeps running.");
+						return;
 					}
 					try
 					{
@@ -90,67 +115,6 @@ namespace EnderPearl.Command
 			{
 				Logger.Info($"Console closed: {exception.Message}.");
 			}
-		}
-
-		/// <summary>Internal for tests. Accepts a leading slash so pasting an in-game command works.</summary>
-		internal void Execute(string? line)
-		{
-			if (string.IsNullOrWhiteSpace(line))
-			{
-				return;
-			}
-			CommandSender sender = CommandSender.Console();
-			string trimmed = line.Trim();
-			if (trimmed.StartsWith("/"))
-			{
-				trimmed = trimmed.Substring(1);
-			}
-			// CommandArguments drops the leading command word, exactly as it does for a chat command.
-			string command = trimmed.Split((char[]?)null, 2)[0].ToLowerInvariant();
-			List<string> arguments = CommandArguments.Split(trimmed);
-
-			switch (command)
-			{
-				case "help":
-				case "?":
-					Help(sender);
-					break;
-				case "glist":
-				case "list":
-					networkCommands.Glist(sender);
-					break;
-				case "send":
-					networkCommands.Send(sender, arguments);
-					break;
-				case "alert":
-				case "say":
-					networkCommands.Alert(sender, CommandArguments.Remainder(trimmed));
-					break;
-				case "perm":
-				case "permission":
-					networkCommands.Permission(sender, arguments);
-					break;
-				case "stop":
-				case "end":
-					sender.SendMessage("Stopping the proxy.");
-					shutdown();
-					break;
-				default:
-					Logger.Error("Unknown command: " + command + ". Type 'help' for commands.");
-					break;
-			}
-		}
-
-		private void Help(CommandSender sender)
-		{
-			sender.SendMessage("glist                      - who is online, and where");
-			sender.SendMessage("send <player|all> <server> - move a player");
-			sender.SendMessage("alert <message>            - broadcast to everyone");
-			sender.SendMessage("perm set <player> <node>   - grant a permission");
-			sender.SendMessage("perm unset <player> <node> - revoke a permission");
-			sender.SendMessage("perm info <player>         - what a player may do");
-			sender.SendMessage("perm list                  - every runtime grant");
-			sender.SendMessage("stop                       - shut the proxy down");
 		}
 	}
 }

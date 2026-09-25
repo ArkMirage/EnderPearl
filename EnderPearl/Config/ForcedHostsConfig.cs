@@ -1,7 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
-using EnderPearl.Logging;
+using EnderPearl.Core;
 
 namespace EnderPearl.Config
 {

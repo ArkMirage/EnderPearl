@@ -5,7 +5,8 @@ using System.Threading;
 using EnderPearl.Config;
 using EnderPearl.Diagnostics;
 using global::Protocol.Packets;
-using EnderPearl.Logging;
+using EnderPearl.Core;
+using EnderPearl.Player;
 
 namespace EnderPearl.Backend
 {
@@ -41,13 +42,13 @@ namespace EnderPearl.Backend
 		}
 
 		/// <summary>
-		/// Whether a backend that kicks a player should be treated as an outage to rescue them from.
-		/// Under the default auto policy this is decided per kick, by whether the backend bothered to
+		/// Whether a backend that disconnects a player should be treated as an outage to rescue them from.
+		/// Under the default auto policy this is decided per disconnect, by whether the backend bothered to
 		/// write a message.
 		/// </summary>
-		public bool FailsOverOnBackendKick(bool backendSuppliedMessage)
+		public bool FailsOverOnBackendDisconnect(bool backendSuppliedMessage)
 		{
-			return failoverConfig.OnBackendKick.FailsOver(backendSuppliedMessage);
+			return failoverConfig.OnBackendDisconnect.FailsOver(backendSuppliedMessage);
 		}
 
 		/// <summary>Opened lazily so a proxy that never sees a fault never creates the file.</summary>
@@ -111,15 +112,15 @@ namespace EnderPearl.Backend
 				if (policy.Disconnects())
 				{
 					Logger.Error(
-						$"Protocol fault on backend {lostBackendName} for {connection.Client().RemoteEndPoint}: {fault.Detail}. Disconnecting rather than failing over{(policy.LogsToFile() ? " (logged to " + policy.LogFile + ")" : "")}.");
-					if (connection.Client().IsConnected)
+						$"Protocol fault on backend {lostBackendName} for {connection.Client.RemoteEndPoint}: {fault.Detail}. Disconnecting rather than failing over{(policy.LogsToFile() ? " (logged to " + policy.LogFile + ")" : "")}.");
+					if (connection.Client.IsConnected)
 					{
-						connection.Client().Disconnect(policy.Message);
+						connection.Client.Disconnect(policy.Message);
 					}
 					return true;
 				}
 			}
-			if (!failoverConfig.Enabled || !connection.Client().IsConnected)
+			if (!failoverConfig.Enabled || !connection.Client.IsConnected)
 			{
 				return false;
 			}
@@ -137,14 +138,14 @@ namespace EnderPearl.Backend
 			if (targets.Count == 0)
 			{
 				Logger.Info(
-					$"No failover target configured for backend {lostBackendName}; disconnecting {connection.Client().RemoteEndPoint}.");
+					$"No failover target configured for backend {lostBackendName}; disconnecting {connection.Client.RemoteEndPoint}.");
 				return false;
 			}
 			ProxyConnection.FailoverStart start = connection.BeginFailover();
 			if (start != ProxyConnection.FailoverStart.STARTED)
 			{
 				Logger.Info(
-					$"Not failing {connection.Client().RemoteEndPoint} over from backend {lostBackendName}: " +
+					$"Not failing {connection.Client.RemoteEndPoint} over from backend {lostBackendName}: " +
 					(start == ProxyConnection.FailoverStart.TOO_MANY
 						? "too many failovers in a row, the fallbacks are dropping the player as fast as they arrive"
 						: "a failover is already running") + ".");
@@ -176,11 +177,11 @@ namespace EnderPearl.Backend
 					names.Add(target.Name);
 				}
 				Logger.Info(
-					$"Backend {lostBackendName} died under {connection.Client().RemoteEndPoint} ({reason}); failing over through [{string.Join(", ", names)}].");
+					$"Backend {lostBackendName} died under {connection.Client.RemoteEndPoint} ({reason}); failing over through [{string.Join(", ", names)}].");
 				BackendSwitcher.SendMessage(connection, "Lost connection to " + lostBackendName + ".");
 				foreach (BackendConfig target in targets)
 				{
-					if (!connection.Client().IsConnected)
+					if (!connection.Client.IsConnected)
 					{
 						return;
 					}
@@ -188,24 +189,24 @@ namespace EnderPearl.Backend
 					if (Attempt(connection, target))
 					{
 						Logger.Info(
-							$"Failed over {connection.Client().RemoteEndPoint} from backend {lostBackendName} to {target.Name}.");
+							$"Failed over {connection.Client.RemoteEndPoint} from backend {lostBackendName} to {target.Name}.");
 						return;
 					}
 				}
 				Logger.Info(
-					$"Failover exhausted for {connection.Client().RemoteEndPoint} after losing backend {lostBackendName}; no fallback of [{string.Join(", ", names)}] accepted the player.");
-				if (connection.Client().IsConnected)
+					$"Failover exhausted for {connection.Client.RemoteEndPoint} after losing backend {lostBackendName}; no fallback of [{string.Join(", ", names)}] accepted the player.");
+				if (connection.Client.IsConnected)
 				{
-					connection.Client().Disconnect(reason);
+					connection.Client.Disconnect(reason);
 				}
 			}
 			catch (Exception exception)
 			{
 				Logger.Error(
-					$"Failover for {connection.Client().RemoteEndPoint} after losing backend {lostBackendName} failed unexpectedly: {exception}.");
-				if (connection.Client().IsConnected)
+					$"Failover for {connection.Client.RemoteEndPoint} after losing backend {lostBackendName} failed unexpectedly: {exception}.");
+				if (connection.Client.IsConnected)
 				{
-					connection.Client().Disconnect(reason);
+					connection.Client.Disconnect(reason);
 				}
 			}
 			finally

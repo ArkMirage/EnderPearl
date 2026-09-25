@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.IO;
 
@@ -29,7 +29,7 @@ namespace EnderPearl.Security
 	/// genuinely large ones, are never measured against it.</para>
 	///
 	/// <para>In the Java original this was a Netty <c>ChannelInboundHandlerAdapter</c> parked in the pipeline.
-	/// This build has no pipeline: <see cref="EnderPearl.Net.PacketSession"/> calls <see cref="ThrowIfTooLarge"/>
+	/// This build has no pipeline: <see cref="EnderPearl.Core.PacketSession"/> calls <see cref="ThrowIfTooLarge"/>
 	/// on every decompressed batch (or consults <see cref="MaxPreAuthBatchBytes"/> through its
 	/// <c>MaxInboundBatchBytesProvider</c> hook), which is why this class is a static policy helper instead.</para>
 	/// </summary>

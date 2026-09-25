@@ -6,10 +6,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using EnderPearl.Crypto;
-using EnderPearl.Net;
+using EnderPearl.Auth;
+using EnderPearl.Core;
 using global::Protocol.Packets;
-using EnderPearl.Logging;
 
 namespace EnderPearl.Auth
 {

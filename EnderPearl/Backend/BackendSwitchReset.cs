@@ -1,12 +1,14 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
-using EnderPearl.Listener;
+using EnderPearl.Frontend;
 using global::Protocol;
 using global::Protocol.Packets;
 using global::Protocol.Utility.IO;
 using global::Protocol.Types;
-using EnderPearl.Logging;
+using EnderPearl.Core;
+using EnderPearl.Player;
+using EnderPearl.Protocol;
 
 namespace EnderPearl.Backend
 {
@@ -119,7 +121,7 @@ namespace EnderPearl.Backend
 			// map to itself yet.
 			foreach (int effectId in connection.TakeActiveClientEffects())
 			{
-				connection.Client().SendPacket(new MobEffectPacket
+				connection.Client.SendPacket(new MobEffectPacket
 				{
 					TargetRuntimeID = new global::Protocol.Types.ActorRuntimeID { Value = unchecked((ulong)clientEntityId) },
 					EventID = global::Protocol.MobEffectPacketPayload.Event.Remove,
@@ -134,7 +136,7 @@ namespace EnderPearl.Backend
 			// A normal TransferPacket reconnect clears input-permission state as a side effect; a
 			// seamless proxy handoff does not, so clear the source backend's mask explicitly before
 			// entering the dimension transition.
-			connection.Client().SendPacket(reset.inputState.ClearSource(firstPosition));
+			connection.Client.SendPacket(reset.inputState.ClearSource(firstPosition));
 			reset.InjectPosition(connection, firstPosition);
 			reset.InjectDimensionChange(connection, firstDimension, firstPosition, true);
 			reset.ScheduleAckFallback(connection);
@@ -272,7 +274,7 @@ namespace EnderPearl.Backend
 			stopSound.SoundName = "portal.travel";
 			stopSound.StopAllSounds = true;
 			stopSound.StopMusicLegacy = false;
-			connection.Client().SendPacket(stopSound);
+			connection.Client.SendPacket(stopSound);
 
 			InjectPosition(connection, targetPosition);
 
@@ -282,7 +284,7 @@ namespace EnderPearl.Backend
 			// Restore what the target backend requested (normally zero). Sending the zero packet is
 			// intentional even when neither backend advertised a mask: it forces the client to discard
 			// stale locks left by a form or by the source backend, just as a real reconnect would.
-			connection.Client().SendPacket(inputState.RestoreTarget(targetPosition));
+			connection.Client.SendPacket(inputState.RestoreTarget(targetPosition));
 
 			var chunkRadius = new RequestChunkRadiusPacket();
 			chunkRadius.ChunkRadius = connection.LastRequestedChunkRadius();
@@ -298,7 +300,7 @@ namespace EnderPearl.Backend
 			if (connection.IsPacketTraceActive())
 			{
 				Logger.Info(
-					$"Initialized player immediately after switch to {backendName}: backend protocol {connection.SessionProfile.BackendCodec.ProtocolVersion} drives its own respawn and sends no post-switch SERVER_READY to wait for.");
+					$"Initialized player immediately after switch to {backendName}: backend protocol {BedrockCodecInfo.Current.ProtocolVersion} drives its own respawn and sends no post-switch SERVER_READY to wait for.");
 				// Java printed this same line after both branches; its wording predates the modern
 				// immediate-initialize path and is kept for log parity.
 				Logger.Info(
@@ -315,7 +317,7 @@ namespace EnderPearl.Backend
 			}
 			foreach (IPacket statePacket in deferred)
 			{
-				connection.Client().SendPacket(statePacket);
+				connection.Client.SendPacket(statePacket);
 			}
 			if (connection.IsPacketTraceActive())
 			{
@@ -340,11 +342,11 @@ namespace EnderPearl.Backend
 			int replayed = 0;
 			foreach (IPacket worldPacket in deferred)
 			{
-				if (!connection.Client().IsConnected)
+				if (!connection.Client.IsConnected)
 				{
 					continue;
 				}
-				connection.Client().SendPacket(worldPacket);
+				connection.Client.SendPacket(worldPacket);
 				replayed++;
 			}
 			if (connection.IsPacketTraceActive())
@@ -369,7 +371,7 @@ namespace EnderPearl.Backend
 			// swallowed the whole batch - every injected respawn teleport (start, phase 2 and completion)
 			// never reached the client, which stranded it at its old coordinates in the new dimension.
 			move.Tick = new global::Protocol.Types.PlayerInputTick();
-			connection.Client().SendPacket(move);
+			connection.Client.SendPacket(move);
 		}
 
 		private void InjectDimensionChange(ProxyConnection connection, int dimension, Vec3 position, bool chunks)
@@ -379,7 +381,7 @@ namespace EnderPearl.Backend
 			change.Position = position;
 			change.Respawn = true;
 			change.LoadingScreenId = new Optional<uint>((uint)Interlocked.Increment(ref loadingScreenIds));
-			connection.Client().SendPacket(change);
+			connection.Client.SendPacket(change);
 
 			if (chunks)
 			{
@@ -393,7 +395,7 @@ namespace EnderPearl.Backend
 			action.BlockPosition = new BlockPos();
 			action.ResultPos = new BlockPos();
 			action.Face = 0;
-			connection.Client().SendPacket(action);
+			connection.Client.SendPacket(action);
 		}
 
 		private void ScheduleAckFallback(ProxyConnection connection)
@@ -433,7 +435,7 @@ namespace EnderPearl.Backend
 			var update = new NetworkChunkPublisherUpdatePacket();
 			update.NewPositionForView = ToBlockPosition(position);
 			update.NewRadiusForView = RESET_CHUNK_RADIUS;
-			connection.Client().SendPacket(update);
+			connection.Client.SendPacket(update);
 		}
 
 		private static void InjectEmptyChunks(ProxyConnection connection, Vec3 position, int dimension)
@@ -451,7 +453,7 @@ namespace EnderPearl.Backend
 					chunk.SubChunksCount = 1;
 					chunk.CacheEnabled = false;
 					chunk.SerializedChunkData = empty;
-					connection.Client().SendPacket(chunk);
+					connection.Client.SendPacket(chunk);
 				}
 			}
 		}

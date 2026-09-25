@@ -29,39 +29,24 @@ namespace EnderPearl.Config
 		public const string DEFAULT_HOST = "127.0.0.1";
 		public const int DEFAULT_PORT = 19133;
 
-		public string Name { get; }
+		public required string Name { get; init; }
 
-		public IPEndPoint Address { get; }
+		public required IPEndPoint Address { get; init; }
+
+		private string? hostString;
 
 		/// <summary>
 		/// The host exactly as configured, before resolution - Java's InetSocketAddress.getHostString().
 		/// A TransferPacket naming a hostname-configured backend is matched against this string first.
+		/// Left unset it falls back to the address's textual form.
 		/// </summary>
-		public string HostString { get; }
+		public string HostString { get => hostString ?? Address.Address.ToString(); init => hostString = value; }
 
 		/// <summary>The Minecraft version this backend runs, or null to inherit the global setting.</summary>
-		public BedrockCodecInfo? Protocol { get; }
+		public BedrockCodecInfo? Protocol { get; init; }
 
 		/// <summary>Whether SubChunkRequests are withheld from this backend; inferred when never configured.</summary>
-		public bool DropSubChunkRequests { get; }
-
-		public BackendConfig(
-			string name,
-			IPEndPoint address,
-			BedrockCodecInfo? protocol = null,
-			string? hostString = null,
-			bool dropSubChunkRequests = false)
-		{
-			if (string.IsNullOrWhiteSpace(name))
-			{
-				throw new ArgumentException("name cannot be blank");
-			}
-			Name = name;
-			Address = address ?? throw new ArgumentNullException(nameof(address));
-			HostString = hostString ?? address.Address.ToString();
-			Protocol = protocol;
-			DropSubChunkRequests = dropSubChunkRequests;
-		}
+		public bool DropSubChunkRequests { get; init; }
 
 		public override string ToString() => Address.ToString();
 
@@ -87,13 +72,14 @@ namespace EnderPearl.Config
 				{
 					throw new ArgumentException("Backend '" + name + "' needs a \"host\".");
 				}
-				backends.Add(ConfigValues.Normalize(name), new BackendConfig(
-					name,
-					InetEndpoints.Resolve(host, entry.Value.GetInt("port", DEFAULT_PORT)),
-					CanonicalProtocol.FromConfig(entry.Value.GetString("protocol")),
-					host,
-					entry.Value.GetBool("dropSubChunkRequests", false)
-				));
+				backends.Add(ConfigValues.Normalize(name), new BackendConfig
+				{
+					Name = name,
+					Address = InetEndpoints.Resolve(host, entry.Value.GetInt("port", DEFAULT_PORT)),
+					Protocol = BedrockCodecInfo.FromConfig(entry.Value.GetString("protocol")),
+					HostString = host,
+					DropSubChunkRequests = entry.Value.GetBool("dropSubChunkRequests", false)
+				});
 			}
 			return backends.Count > 0 ? backends : DefaultAll();
 		}
@@ -101,7 +87,11 @@ namespace EnderPearl.Config
 		public static LinkedHashMap<string, BackendConfig> DefaultAll()
 		{
 			var backends = new LinkedHashMap<string, BackendConfig>();
-			backends.Add(DEFAULT_NAME, new BackendConfig(DEFAULT_NAME, InetEndpoints.Resolve(DEFAULT_HOST, DEFAULT_PORT)));
+			backends.Add(DEFAULT_NAME, new BackendConfig
+			{
+				Name = DEFAULT_NAME,
+				Address = InetEndpoints.Resolve(DEFAULT_HOST, DEFAULT_PORT)
+			});
 			return backends;
 		}
 

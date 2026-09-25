@@ -15,21 +15,21 @@ namespace EnderPearl.Command
 	/// </summary>
 	public sealed class ProxyCommandInterceptor
 	{
-		private readonly ProxyCommandRegistry registry;
+		private readonly ProxyCommandManager manager;
 		private readonly IReadOnlySet<string> passthrough;
 		private readonly string qualifier;
 
 		/// <summary>Keeps every command for the proxy, with the default qualified form still available.</summary>
-		public ProxyCommandInterceptor(ProxyCommandRegistry registry)
-			: this(registry, null, CommandsConfig.DEFAULT_QUALIFIER)
+		public ProxyCommandInterceptor(ProxyCommandManager manager)
+			: this(manager, null, CommandsConfig.DEFAULT_QUALIFIER)
 		{
 		}
 
 		/// <param name="passthrough">command names this backend has taken over, which are forwarded unchanged</param>
 		/// <param name="qualifier">the prefix that forces proxy handling regardless, or empty to disable it</param>
-		public ProxyCommandInterceptor(ProxyCommandRegistry registry, IEnumerable<string>? passthrough, string? qualifier)
+		public ProxyCommandInterceptor(ProxyCommandManager manager, IEnumerable<string>? passthrough, string? qualifier)
 		{
-			this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
+			this.manager = manager ?? throw new ArgumentNullException(nameof(manager));
 			if (passthrough == null)
 			{
 				this.passthrough = new HashSet<string>();
@@ -49,14 +49,16 @@ namespace EnderPearl.Command
 		public CommandInterception Intercept(CommandRequestPacket packet)
 		{
 			string commandLine = packet.Command;
-			string name = ProxyCommandRegistry.CommandName(commandLine);
+			string name = ProxyCommandManager.CommandName(commandLine);
 
 			// An empty qualifier disables the qualified form rather than making every command qualified,
 			// which is what a StartsWith("") test would otherwise do.
 			bool qualified = qualifier.Length > 0 && name.StartsWith(qualifier, StringComparison.Ordinal);
 			string lookup = qualified ? name.Substring(qualifier.Length) : name;
 
-			ProxyCommand? command = registry.Find(lookup);
+			// Game scope only: a command registered for the terminal alone is not one of ours in chat, so
+			// the backend keeps its own /help and /stop exactly as it did before the proxy existed.
+			ProxyCommand? command = manager.Find(lookup, CommandScope.Game);
 			if (command == null)
 			{
 				// Includes a qualified name the proxy does not have: forwarding lets the backend give

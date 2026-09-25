@@ -1,9 +1,10 @@
 ﻿using EnderPearl.Backend;
-using EnderPearl.Net;
+using EnderPearl.Core;
 using EnderPearl.Permission;
 using global::Protocol.Packets;
 using CommandPayloadTypes = global::Protocol.Types.AvailableCommandsPacketPayload;
-using EnderPearl.Logging;
+using EnderPearl.Player;
+using EnderPearl.Server;
 
 namespace EnderPearl.Command
 {
@@ -11,7 +12,7 @@ namespace EnderPearl.Command
 	/// Adds the proxy's own commands to the <see cref="AvailableCommandsPacket"/> the backend sent, so
 	/// they autocomplete like native ones.
 	///
-	/// <para>Real sessions use the four-argument constructor so an admin command never appears in a
+	/// <para>Real sessions use the three-argument constructor so an admin command never appears in a
 	/// player's autocomplete, and the backend list is the one that player is allowed to see. Note
 	/// that hiding is cosmetic — the client can send any command line it likes, so
 	/// <c>BackendCommandRouter</c> checks again on execution.</para>
@@ -32,38 +33,28 @@ namespace EnderPearl.Command
 		private const uint ARG_FLAG_POSTFIX = 0x1000000;
 		private const uint ARG_FLAG_SOFT_ENUM = 0x4000000;
 
-		/// <summary>
-		/// The wire id of the "string" parameter type on this protocol's table, under
-		/// ARG_FLAG_VALID. Only used as the fallback for /send when no roster exists — everywhere else
-		/// a symbol is borrowed from or registered against the packet itself.
-		/// </summary>
-		private const uint COMMAND_PARAM_STRING = ARG_FLAG_VALID | 56;
-
 		/// <summary>The one flag the Java original set: CommandData.Flag.NOT_CHEAT, ordinal 7 → bit 128.</summary>
 		private const ushort COMMAND_DATA_FLAG_NOT_CHEAT = 0x80;
 
-		private readonly ProxyCommandRegistry registry;
+		private readonly ProxyCommandManager manager;
 		private readonly List<string> backendNames;
 		private readonly Func<string, bool> visible;
-		private readonly ProxyPlayerEnum? playerEnum;
 
 		/// <summary>
 		/// </summary>
+		/// <param name="manager">supplies the in-game commands and, per command, the arguments it declares</param>
 		/// <param name="backendNames">the backends this session's player may switch themselves to; a restricted
 		/// backend is left out so its existence is not advertised</param>
 		/// <param name="visible">answers whether this session's player may use a command, by command name</param>
-		/// <param name="playerEnum">supplies <c>/send</c>'s autocompletable player list, or null for none</param>
 		public AvailableCommandsInjector(
-			ProxyCommandRegistry registry,
+			ProxyCommandManager manager,
 			IEnumerable<string> backendNames,
-			Func<string, bool>? visible,
-			ProxyPlayerEnum? playerEnum
+			Func<string, bool>? visible
 		)
 		{
-			this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
+			this.manager = manager ?? throw new ArgumentNullException(nameof(manager));
 			this.backendNames = backendNames == null ? throw new ArgumentNullException(nameof(backendNames)) : new List<string>(backendNames);
 			this.visible = visible ?? (_ => true);
-			this.playerEnum = playerEnum;
 		}
 
 		public AvailableCommandsPacket Inject(AvailableCommandsPacket packet)
@@ -83,13 +74,17 @@ namespace EnderPearl.Command
 			}
 
 			List<CommandPayloadTypes.CommandData> injected = new();
-			foreach (ProxyCommand command in registry.Commands())
+			// Game scope only: a command that exists only in the terminal has no business in a player's
+			// command tree, where it could never be run. The name advertised is the command's own, never one
+			// of its alternates — chat is exactly where the narrowed ones must stay unclaimed.
+			foreach (ProxyCommand command in manager.Commands(CommandScope.Game))
 			{
-				if (!visible(command.Name))
+				string name = command.Names[0].Name;
+				if (!visible(name))
 				{
 					continue;
 				}
-				if (existing.Add(command.Name.ToLowerInvariant()))
+				if (existing.Add(name.ToLowerInvariant()))
 				{
 					injected.Add(ToCommandData(packet, command, freeTextType));
 				}
@@ -171,7 +166,7 @@ namespace EnderPearl.Command
 		{
 			return new CommandPayloadTypes.CommandData
 			{
-				Name = command.Name,
+				Name = command.Names[0].Name,
 				Description = command.Description,
 				Flags = COMMAND_DATA_FLAG_NOT_CHEAT,
 				// ANY, not OPERATOR: the client hides commands above its own permission level, and
@@ -184,83 +179,59 @@ namespace EnderPearl.Command
 			};
 		}
 
+		/// <summary>
+		/// The single overload the command's own argument list describes.
+		///
+		/// <para>One overload rather than several: a trailing optional argument already covers the shorter
+		/// forms, so the client completes the whole line as it is typed instead of forcing a choice between
+		/// overloads it cannot see. Which arguments a command has is declared with the command, so nothing
+		/// here knows any command by name.</para>
+		/// </summary>
 		private List<CommandPayloadTypes.OverloadData> OverloadsFor(AvailableCommandsPacket packet, ProxyCommand command, uint? freeTextType)
 		{
-			switch (command.Name)
+			List<CommandPayloadTypes.ParamData> parameters = new();
+			foreach (CommandParameter parameter in command.Parameters)
 			{
-				case "server":
+				CommandPayloadTypes.ParamData? built = Parameter(packet, parameter, freeTextType);
+				if (built != null)
 				{
-					return new List<CommandPayloadTypes.OverloadData>
-					{
-						new() { IsChaining = false, ParameterData = new List<CommandPayloadTypes.ParamData>() },
-						new()
-						{
-							IsChaining = false,
-							ParameterData = new List<CommandPayloadTypes.ParamData> { BackendNameParameter(packet, "name") }
-						}
-					};
+					parameters.Add(built);
 				}
-				case "send":
-				{
-					return new List<CommandPayloadTypes.OverloadData>
-					{
-						new()
-						{
-							IsChaining = false,
-							ParameterData = new List<CommandPayloadTypes.ParamData>
-							{
-								PlayerParameter(packet, "player", false),
-								BackendNameParameter(packet, "server")
-							}
-						}
-					};
-				}
-				// Every parameter is an enum, so none of them touch the codec's parameter type table.
-				// The trailing two are optional because `list` takes neither and `info` takes only the
-				// player — one overload autocompletes all four forms without the client having to pick
-				// between overloads as you type.
-				case "perm":
-				{
-					return new List<CommandPayloadTypes.OverloadData>
-					{
-						new()
-						{
-							IsChaining = false,
-							ParameterData = new List<CommandPayloadTypes.ParamData>
-							{
-								FixedEnumParameter(packet, "action", "ProxyPermActions", PERM_ACTIONS, false),
-								PlayerParameter(packet, "player", true),
-								FixedEnumParameter(packet, "node", "ProxyPermNodes", PermissionNodes(), true)
-							}
-						}
-					};
-				}
-				case "alert":
-				{
-					return freeTextType == null
-						? new List<CommandPayloadTypes.OverloadData>
-						{
-							new() { IsChaining = false, ParameterData = new List<CommandPayloadTypes.ParamData>() }
-						}
-						: new List<CommandPayloadTypes.OverloadData>
-						{
-							new()
-							{
-								IsChaining = false,
-								ParameterData = new List<CommandPayloadTypes.ParamData>
-								{
-									FreeTextParameter("message", freeTextType.Value)
-								}
-							}
-						};
-				}
+			}
+			return new List<CommandPayloadTypes.OverloadData>
+			{
+				new() { IsChaining = false, ParameterData = parameters }
+			};
+		}
+
+		/// <summary>
+		/// Turns one declared argument into the wire form the client completes.
+		///
+		/// <returns>null when the kind cannot be advertised at all — free text without a symbol borrowed
+		/// from the backend's own tree, which is left out rather than guessed at</returns>
+		/// </summary>
+		private CommandPayloadTypes.ParamData? Parameter(
+			AvailableCommandsPacket packet,
+			CommandParameter parameter,
+			uint? freeTextType
+		)
+		{
+			switch (parameter.Kind)
+			{
+				case CommandParameterKind.BackendName:
+					return FixedEnumParameter(packet, parameter.Name, "ProxyBackends", backendNames, parameter.IsOptional);
+				case CommandParameterKind.Player:
+					return PlayerParameter(packet, parameter.Name, parameter.IsOptional);
+				// Every permission argument is an enum, so none of them reach the codec's parameter type
+				// table — see the note on FreeTextParamType for why that matters.
+				case CommandParameterKind.PermissionAction:
+					return FixedEnumParameter(packet, parameter.Name, "ProxyPermActions", PERM_ACTIONS, parameter.IsOptional);
+				case CommandParameterKind.PermissionNode:
+					return FixedEnumParameter(packet, parameter.Name, "ProxyPermNodes", PermissionNodes(), parameter.IsOptional);
+				case CommandParameterKind.FreeText:
+					return freeTextType == null ? null : FreeTextParameter(parameter.Name, freeTextType.Value, parameter.IsOptional);
 				default:
-				{
-					return new List<CommandPayloadTypes.OverloadData>
-					{
-						new() { IsChaining = false, ParameterData = new List<CommandPayloadTypes.ParamData>() }
-					};
-				}
+					return null;
 			}
 		}
 
@@ -269,23 +240,14 @@ namespace EnderPearl.Command
 		/// come and go.
 		///
 		/// <para>Not a target selector: the player being sent is usually on another backend, where the
-		/// client has no entity to resolve the selector against and would reject the name as unknown.
-		/// Falls back to a plain string when no roster is available, which still accepts a typed name —
-		/// it just cannot suggest one.</para>
+		/// client has no entity to resolve the selector against and would reject the name as unknown.</para>
 		/// </summary>
 		private CommandPayloadTypes.ParamData PlayerParameter(AvailableCommandsPacket packet, string name, bool optional)
 		{
 			CommandPayloadTypes.ParamData parameter = new();
 			parameter.Name = name;
 			parameter.IsOptional = optional;
-			if (playerEnum == null)
-			{
-				parameter.ParseSymbol = COMMAND_PARAM_STRING;
-			}
-			else
-			{
-				parameter.ParseSymbol = RegisterSoftEnum(packet);
-			}
+			parameter.ParseSymbol = RegisterSoftEnum(packet);
 			return parameter;
 		}
 
@@ -299,7 +261,7 @@ namespace EnderPearl.Command
 			int index = packet.SoftEnums.FindIndex(entry => ProxyPlayerEnum.NAME.Equals(entry.EnumName, StringComparison.Ordinal));
 			if (index < 0)
 			{
-				playerEnum!.InjectInto(packet);
+				ProxyServer.PlayerEnum.InjectInto(packet);
 				index = packet.SoftEnums.Count - 1;
 			}
 			// The Java serializer ORs ARG_FLAG_VALID into every enum symbol it writes
@@ -328,30 +290,25 @@ namespace EnderPearl.Command
 			return parameter;
 		}
 
-		/// <summary><c>admin</c>, plus one node per proxy command and per backend.</summary>
+		/// <summary><c>admin</c>, plus one node per in-game command and per backend.</summary>
 		private List<string> PermissionNodes()
 		{
 			List<string> commandNames = new();
-			foreach (ProxyCommand command in registry.Commands())
+			foreach (ProxyCommand command in manager.Commands(CommandScope.Game))
 			{
-				commandNames.Add(command.Name);
+				commandNames.Add(command.Names[0].Name);
 			}
 			return ProxyPermissions.KnownNodes(commandNames, backendNames);
 		}
 
 		/// <summary>A free-text parameter, typed by whatever the backend uses for one.</summary>
-		private static CommandPayloadTypes.ParamData FreeTextParameter(string name, uint type)
+		private static CommandPayloadTypes.ParamData FreeTextParameter(string name, uint type, bool optional)
 		{
 			CommandPayloadTypes.ParamData parameter = new();
 			parameter.Name = name;
-			parameter.IsOptional = false;
+			parameter.IsOptional = optional;
 			parameter.ParseSymbol = type;
 			return parameter;
-		}
-
-		private CommandPayloadTypes.ParamData BackendNameParameter(AvailableCommandsPacket packet, string name)
-		{
-			return FixedEnumParameter(packet, name, "ProxyBackends", backendNames, false);
 		}
 
 		/// <summary>

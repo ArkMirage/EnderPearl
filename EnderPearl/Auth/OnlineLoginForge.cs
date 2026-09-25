@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
-using EnderPearl.Crypto;
+using EnderPearl.Auth;
 using Protocol.Packets;
 
 namespace EnderPearl.Auth

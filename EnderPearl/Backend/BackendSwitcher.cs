@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Threading;
 using EnderPearl.Config;
 using global::Protocol.Packets;
-using EnderPearl.Logging;
+using EnderPearl.Core;
+using EnderPearl.Player;
 
 namespace EnderPearl.Backend
 {
@@ -75,7 +76,7 @@ namespace EnderPearl.Backend
 			int attempts = 0;
 			try
 			{
-				while (connection.Client().IsConnected)
+				while (connection.Client.IsConnected)
 				{
 					attempts++;
 					if (BackendSwitchAttempt.Run(backendConnector, connection, backend, switchConfig.TimeoutMillis))
@@ -93,12 +94,12 @@ namespace EnderPearl.Backend
 						return;
 					}
 				}
-				if (!connection.Client().IsConnected)
+				if (!connection.Client.IsConnected)
 				{
 					return;
 				}
 				Logger.Info(
-					$"Giving up on switching {connection.Client().RemoteEndPoint} to backend {backend.Name} after {attempts} attempt(s) over {(ProxyConnection.NanoTime() - startedAtNanos) / 1_000_000L}ms.");
+					$"Giving up on switching {connection.Client.RemoteEndPoint} to backend {backend.Name} after {attempts} attempt(s) over {(ProxyConnection.NanoTime() - startedAtNanos) / 1_000_000L}ms.");
 				SendMessage(connection,
 					$"Could not connect to {backend.Name}. You are still on {connection.BackendName()}.");
 			}
@@ -133,60 +134,12 @@ namespace EnderPearl.Backend
 
 		public static void SendMessage(ProxyConnection connection, string message)
 		{
-			if (!connection.Client().IsConnected)
+			if (!connection.Client.IsConnected)
 			{
 				return;
 			}
-			TextPacket packet = Messages.NewSystemText(message);
-			connection.Client().SendPacket(packet);
-		}
-	}
-
-	/// <summary>Shared builders for the few packets the proxy itself originates.</summary>
-	internal static class Messages
-	{
-		/// <summary>
-		/// How the proxy talks to a player. Protocol 2168 carries only Raw/Chat/Translate text bodies;
-		/// server notices are Raw (the modern encoding of what older protocols called a system message).
-		/// </summary>
-		public static TextPacket NewSystemText(string message)
-		{
-			var packet = new TextPacket();
-			packet.MessageType = global::Protocol.TextPacketType.Raw;
-			packet.Localize = false;
-			packet.Body = OneOf.OneOf<global::Protocol.Types.TextPacketPayload.MessageOnly, global::Protocol.Types.TextPacketPayload.AuthorAndMessage, global::Protocol.Types.TextPacketPayload.MessageAndParams>.FromT0(
-				new global::Protocol.Types.TextPacketPayload.MessageOnly
-				{
-					MessageType = global::Protocol.TextPacketType.Raw,
-					Message = message
-				});
-			packet.SenderSXUID = "";
-			packet.PlatformId = "";
-			return packet;
-		}
-
-		/// <summary>The kick text a DisconnectPacket carries, or "" when the message was skipped.</summary>
-		public static string DisconnectMessage(DisconnectPacket packet)
-		{
-			return packet.Messages.Index == 0 && packet.Messages.AsT0 != null
-				? packet.Messages.AsT0.Message ?? ""
-				: "";
-		}
-
-		public static string DisconnectFilteredMessage(DisconnectPacket packet)
-		{
-			return packet.Messages.Index == 0 && packet.Messages.AsT0 != null
-				? packet.Messages.AsT0.FilteredMessage ?? ""
-				: "";
-		}
-
-		/// <summary>Whether the backend sent kick text of its own (false = host-level disconnect).</summary>
-		public static bool DisconnectHasMessage(DisconnectPacket packet)
-		{
-			// Java tested !message.isBlank(): a whitespace-only message counts as "no message", which
-			// decides whether a kick is treated as a deliberate ban (pass through) or a host failure
-			// (failover candidate).
-			return packet.Messages.Index == 0 && !string.IsNullOrWhiteSpace(packet.Messages.AsT0?.Message);
+			TextPacket packet = ProxyPackets.NewSystemText(message);
+			connection.Client.SendPacket(packet);
 		}
 	}
 }

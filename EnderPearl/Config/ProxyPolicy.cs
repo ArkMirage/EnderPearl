@@ -8,60 +8,32 @@ namespace EnderPearl.Config
 	/// </summary>
 	public sealed class ProxyPolicy
 	{
-		public FailoverConfig Failover { get; }
+		public required FailoverConfig Failover { get; init; }
 
-		public BackendSwitchConfig BackendSwitch { get; }
+		public required BackendSwitchConfig BackendSwitch { get; init; }
 
-		public PermissionsConfig Permissions { get; }
+		public required PermissionsConfig Permissions { get; init; }
 
-		public SecurityConfig Security { get; }
+		public required SecurityConfig Security { get; init; }
 
-		public ForcedHostsConfig ForcedHosts { get; }
+		public required ForcedHostsConfig ForcedHosts { get; init; }
 
-		public JoinConfig Join { get; }
+		public required JoinConfig Join { get; init; }
 
-		public CommandsConfig Commands { get; }
-
-		public ProxyPolicy(
-			FailoverConfig failover,
-			BackendSwitchConfig backendSwitch,
-			PermissionsConfig permissions,
-			SecurityConfig security,
-			ForcedHostsConfig forcedHosts,
-			JoinConfig join)
-			: this(failover, backendSwitch, permissions, security, forcedHosts, join, CommandsConfig.Defaults())
-		{
-		}
-
-		public ProxyPolicy(
-			FailoverConfig failover,
-			BackendSwitchConfig backendSwitch,
-			PermissionsConfig permissions,
-			SecurityConfig security,
-			ForcedHostsConfig forcedHosts,
-			JoinConfig join,
-			CommandsConfig commands)
-		{
-			Failover = failover ?? throw new ArgumentNullException(nameof(failover));
-			BackendSwitch = backendSwitch ?? throw new ArgumentNullException(nameof(backendSwitch));
-			Permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));
-			Security = security ?? throw new ArgumentNullException(nameof(security));
-			ForcedHosts = forcedHosts ?? throw new ArgumentNullException(nameof(forcedHosts));
-			Join = join ?? throw new ArgumentNullException(nameof(join));
-			Commands = commands ?? throw new ArgumentNullException(nameof(commands));
-		}
+		public CommandsConfig Commands { get; init; } = CommandsConfig.Defaults();
 
 		public static ProxyPolicy Defaults()
 		{
-			return new ProxyPolicy(
-				FailoverConfig.Disabled(),
-				BackendSwitchConfig.Defaults(),
-				PermissionsConfig.Defaults(),
-				SecurityConfig.Defaults(),
-				ForcedHostsConfig.Empty(),
-				JoinConfig.Defaults(),
-				CommandsConfig.Defaults()
-			);
+			return new ProxyPolicy
+			{
+				Failover = FailoverConfig.Disabled(),
+				BackendSwitch = BackendSwitchConfig.Defaults(),
+				Permissions = PermissionsConfig.Defaults(),
+				Security = SecurityConfig.Defaults(),
+				ForcedHosts = ForcedHostsConfig.Empty(),
+				Join = JoinConfig.Defaults(),
+				Commands = CommandsConfig.Defaults()
+			};
 		}
 	}
 }

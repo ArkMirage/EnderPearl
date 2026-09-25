@@ -2,7 +2,8 @@
 using System.Collections.Generic;
 using System.Threading;
 using EnderPearl.Config;
-using EnderPearl.Logging;
+using EnderPearl.Core;
+using EnderPearl.Player;
 
 namespace EnderPearl.Backend
 {
@@ -38,7 +39,7 @@ namespace EnderPearl.Backend
 				// to BackendFailover, and the caller's own handling is correct.
 				return false;
 			}
-			if (!connection.Client().IsConnected)
+			if (!connection.Client.IsConnected)
 			{
 				connection.EndJoinSequence();
 				return true;
@@ -55,7 +56,7 @@ namespace EnderPearl.Backend
 				connection.EndJoinSequence();
 				Logger.Info(
 					$"No backend accepted {connection.ClientLogin.AuthData.DisplayName} at join; last was {failedBackendName} ({reason}).");
-				connection.Client().Disconnect("All servers are offline. Please try again shortly.");
+				connection.Client.Disconnect("All servers are offline. Please try again shortly.");
 				return true;
 			}
 

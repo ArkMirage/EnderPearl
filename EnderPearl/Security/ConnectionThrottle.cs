@@ -2,7 +2,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using EnderPearl.Config;
-using EnderPearl.Logging;
+using EnderPearl.Core;
 
 namespace EnderPearl.Security
 {

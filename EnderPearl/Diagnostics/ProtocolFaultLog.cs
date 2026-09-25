@@ -2,7 +2,7 @@
 using System.Globalization;
 using System.IO;
 using System.Text;
-using EnderPearl.Logging;
+using EnderPearl.Core;
 
 namespace EnderPearl.Diagnostics
 {

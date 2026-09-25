@@ -7,102 +7,49 @@ using EnderPearl.Command;
 using EnderPearl.Permission;
 using EnderPearl.Config;
 using EnderPearl.Diagnostics;
-using EnderPearl.Crypto;
-using EnderPearl.Crypto;
 using EnderPearl.Protocol;
-using EnderPearl.Session;
+using EnderPearl.Player;
 using global::Protocol.Packets;
-using EnderPearl.Logging;
+using EnderPearl.Core;
+using EnderPearl.Relay;
+using EnderPearl.Server;
 
 namespace EnderPearl.Backend
 {
 	/// <summary>
 	/// Dials backends and drives a player onto them: the join try-list at login, /server-style switches,
-	/// and the failover path all end here.
+	/// and the Failover path all end here.
 	/// </summary>
-	public sealed class BackendConnector
+		public sealed class BackendConnector
 	{
-		private readonly BackendDirectory backendDirectory;
-		private readonly ProxyCommandRegistry commandRegistry;
-		private readonly ProtocolRegistry protocolRegistry;
-		private readonly BedrockCodecInfo? backendProtocolOverride;
-		private readonly BackendProtocolDetector backendProtocolDetector;
-		private readonly OnlineLoginForge onlineLoginForge;
-		private readonly Func<string, string> verifiedXuidLookup;
-		private readonly ProxyPolicy policy;
-		private readonly BackendSwitchConfig switchConfig;
-		private readonly ConnectedPlayerRegistry connectedPlayers;
-		private readonly ProxyPermissions permissions;
-		private readonly ProxyPlayerEnum playerEnum;
-		private readonly string publicAddress;
-		private readonly int listenPort;
-		private readonly MojangMimicIdentity? mimicIdentity;
+		public required ProxyCommandManager CommandManager { get; init; }
+		public required OnlineLoginForge OnlineLoginForge { get; init; }
+
+		private readonly BackendProtocolDetector protocolDetector = new();
 		private readonly ReconnectRoutes reconnectRoutes = new();
-		private readonly BackendSwitcher switcher;
-		private readonly BackendFailover failover;
-		private readonly JoinFailover joinFailover;
-		// Set once at startup, after the connector exists: NetworkCommands needs the switcher this
-		// owns, and the connector needs the commands to build a router.
-		private volatile NetworkCommands? networkCommands;
+		private BackendSwitcher? switcherInstance;
+		private BackendFailover? failoverInstance;
+		private JoinFailover? joinFailoverInstance;
 
-		public BackendConnector(
-			BackendDirectory backendDirectory,
-			ProxyCommandRegistry commandRegistry,
-			MojangMimicIdentity? mimicIdentity,
-			ProtocolRegistry protocolRegistry,
-			BedrockCodecInfo? backendProtocolOverride,
-			OnlineLoginForge onlineLoginForge,
-			Func<string, string>? verifiedXuidLookup,
-			ProxyPolicy policy,
-			ConnectedPlayerRegistry connectedPlayers,
-			ProxyPermissions permissions,
-			ProxyPlayerEnum playerEnum
-		)
-			: this(backendDirectory, commandRegistry, mimicIdentity, protocolRegistry, backendProtocolOverride,
-				onlineLoginForge, verifiedXuidLookup, policy, connectedPlayers,
-				permissions, playerEnum, "", DEFAULT_LISTEN_PORT)
+		public BackendSwitcher Switcher => switcherInstance ??= new BackendSwitcher(this, ProxyServer.Policy.BackendSwitch);
+
+		public BackendFailover Failover => failoverInstance ??= new BackendFailover(ProxyServer.BackendDirectory, this, ProxyServer.Policy.Failover);
+
+		public JoinFailover JoinFailover => joinFailoverInstance ??= new JoinFailover(this);
+
+	/// <summary>
+	/// Builds the derived components and runs their startup-time config checks. Call once, after the
+	/// object initializer, before the first join is dialled.
+	/// </summary>
+		public BackendConnector Prepare()
 		{
+			switcherInstance = Switcher;
+			failoverInstance = Failover;
+			joinFailoverInstance = JoinFailover;
+			return this;
 		}
 
-		public const int DEFAULT_LISTEN_PORT = 19132;
-
-		public BackendConnector(
-			BackendDirectory backendDirectory,
-			ProxyCommandRegistry commandRegistry,
-			MojangMimicIdentity? mimicIdentity,
-			ProtocolRegistry protocolRegistry,
-			BedrockCodecInfo? backendProtocolOverride,
-			OnlineLoginForge onlineLoginForge,
-			Func<string, string>? verifiedXuidLookup,
-			ProxyPolicy policy,
-			ConnectedPlayerRegistry connectedPlayers,
-			ProxyPermissions permissions,
-			ProxyPlayerEnum playerEnum,
-			string? publicAddress,
-			int listenPort
-		)
-		{
-			this.mimicIdentity = mimicIdentity;
-			this.publicAddress = publicAddress == null ? "" : publicAddress.Trim();
-			this.listenPort = listenPort;
-			this.backendDirectory = backendDirectory;
-			this.commandRegistry = commandRegistry;
-			this.protocolRegistry = protocolRegistry;
-			this.backendProtocolOverride = backendProtocolOverride;
-			this.backendProtocolDetector = new BackendProtocolDetector();
-			this.onlineLoginForge = onlineLoginForge;
-			this.verifiedXuidLookup = verifiedXuidLookup ?? (_ => "");
-			this.policy = policy ?? ProxyPolicy.Defaults();
-			switchConfig = this.policy.BackendSwitch;
-			this.connectedPlayers = connectedPlayers;
-			this.permissions = permissions ?? ProxyPermissions.InMemory(this.policy.Permissions);
-			this.playerEnum = playerEnum;
-			switcher = new BackendSwitcher(this, switchConfig);
-			failover = new BackendFailover(backendDirectory, this, this.policy.Failover);
-			joinFailover = new JoinFailover(this);
-		}
-
-		/// <summary>
+	/// <summary>
 		/// Whether this player can only reach a backend by reconnecting.
 		///
 		/// <para>A Bedrock client fixes its block-id scheme from the StartGame it logged in with and cannot
@@ -139,7 +86,7 @@ namespace EnderPearl.Backend
 				SendMessageTo(connection, "Unable to reach " + backend.Name + " from here. Reconnect and pick it from the server list.");
 				Logger.Info(
 					$"Cannot send {connection.ClientLogin.AuthData.DisplayName} to {backend.Name}: it needs a reconnect, and the proxy has no address to send them back to."
-					+ " Set publicAddress in the config.");
+					+ " Set PublicAddress in the config.");
 				return false;
 			}
 
@@ -149,15 +96,17 @@ namespace EnderPearl.Backend
 				+ " (it numbers block ids differently to the world they logged into).");
 			SendMessageTo(connection, "Taking you to " + backend.Name + "...");
 
-			TransferPacket transfer = new TransferPacket();
-			transfer.ServerAddress = target.Host;
-			transfer.ServerPort = (ushort)target.Port;
-			connection.Client().SendPacket(transfer);
+			TransferPacket transfer = new TransferPacket
+			{
+				ServerAddress = target.Host,
+				ServerPort = (ushort)target.Port
+			};
+			connection.Client.SendPacket(transfer);
 			return true;
 		}
 
 		/// <summary>
-		/// Where to tell the client to reconnect: the operator's publicAddress if set, otherwise the
+		/// Where to tell the client to reconnect: the operator's PublicAddress if set, otherwise the
 		/// address this player themselves connected with.
 		///
 		/// <para>The claim carries the port the player actually used, which is the right one to send them
@@ -167,12 +116,12 @@ namespace EnderPearl.Backend
 		/// </summary>
 		private ReconnectAddress? ReconnectAddressOf(ProxyConnection connection)
 		{
-			ReconnectAddress? configured = ReconnectAddress.Parse(publicAddress, listenPort);
+			ReconnectAddress? configured = ReconnectAddress.Parse(ProxyServer.Config.PublicAddress, ProxyServer.Config.ListenAddress.Port);
 			if (configured != null)
 			{
 				return configured;
 			}
-			return ReconnectAddress.Parse(ClientServerAddress(connection), listenPort);
+			return ReconnectAddress.Parse(ClientServerAddress(connection), ProxyServer.Config.ListenAddress.Port);
 		}
 
 		public ReconnectRoutes ReconnectRoutes => reconnectRoutes;
@@ -194,8 +143,8 @@ namespace EnderPearl.Backend
 		{
 			List<BackendConfig> candidates = JoinCandidates.Expand(
 				InitialBackend(connection),
-				policy.Join,
-				backendDirectory);
+				ProxyServer.Policy.Join,
+				ProxyServer.BackendDirectory);
 			BackendConfig first = candidates[0];
 			connection.BeginJoinSequence(candidates.GetRange(1, candidates.Count - 1));
 			Connect(connection, first);
@@ -215,7 +164,7 @@ namespace EnderPearl.Backend
 			// the harmless literal "null", which simply missed the map. Here an absent route skips the
 			// lookup - BackendDirectory.Find throws on blank names.)
 			string? pendingRoute = reconnectRoutes.Take(connection.ClientLogin.AuthData.Xuid);
-			BackendConfig? pending = pendingRoute == null ? null : backendDirectory.Find(pendingRoute);
+			BackendConfig? pending = pendingRoute == null ? null : ProxyServer.BackendDirectory.Find(pendingRoute);
 			if (pending != null)
 			{
 				Logger.Info(
@@ -223,15 +172,15 @@ namespace EnderPearl.Backend
 				return pending;
 			}
 
-			ForcedHostsConfig forcedHosts = policy.ForcedHosts;
+			ForcedHostsConfig forcedHosts = ProxyServer.Policy.ForcedHosts;
 			if (forcedHosts.IsEmpty())
 			{
-				return backendDirectory.DefaultBackend();
+				return ProxyServer.BackendDirectory.DefaultBackend();
 			}
 			string serverAddress = ClientServerAddress(connection);
 			if (forcedHosts.TryBackendFor(serverAddress, out string? forcedName))
 			{
-				BackendConfig? forced = backendDirectory.Find(forcedName!);
+				BackendConfig? forced = ProxyServer.BackendDirectory.Find(forcedName!);
 				if (forced != null)
 				{
 					Logger.Info(
@@ -239,7 +188,7 @@ namespace EnderPearl.Backend
 					return forced;
 				}
 			}
-			return backendDirectory.DefaultBackend();
+			return ProxyServer.BackendDirectory.DefaultBackend();
 		}
 
 		private static string ClientServerAddress(ProxyConnection connection)
@@ -252,40 +201,40 @@ namespace EnderPearl.Backend
 		public void Connect(ProxyConnection connection, BackendConfig backendConfig)
 		{
 			connection.BeginJoinAttempt();
-			ConnectInternal(connection, backendConfig, true, new PlainActivation(connection, backendConfig, joinFailover));
+			ConnectInternal(connection, backendConfig, true, new PlainActivation(connection, backendConfig, JoinFailover));
 		}
 
 		private sealed class PlainActivation : BackendActivation
 		{
 			private readonly ProxyConnection connection;
 			private readonly BackendConfig backendConfig;
-			private readonly JoinFailover joinFailover;
+			private readonly JoinFailover JoinFailover;
 
-			public PlainActivation(ProxyConnection connection, BackendConfig backendConfig, JoinFailover joinFailover)
+			public PlainActivation(ProxyConnection connection, BackendConfig backendConfig, JoinFailover JoinFailover)
 			{
 				this.connection = connection;
 				this.backendConfig = backendConfig;
-				this.joinFailover = joinFailover;
+				this.JoinFailover = JoinFailover;
 			}
 
-			public void OnReady(BackendSession backend)
+			public override void OnReady(BackendSession backend)
 			{
 				connection.SetBackend(backendConfig.Name, backend);
 			}
 
-			public void OnStartGame(BackendSession backend)
+			public override void OnStartGame(BackendSession backend)
 			{
 			}
 
-			public void OnFailure(BackendSession? backend, Exception exception)
+			public override void OnFailure(BackendSession? backend, Exception exception)
 			{
 				// Covers both "the backend never answered" and "the handshake failed".
 				string reason = exception is UnsupportedVersionPairException ? exception.Message : "unreachable";
-				if (joinFailover.HandleJoinFailure(connection, backendConfig.Name, reason))
+				if (JoinFailover.HandleJoinFailure(connection, backendConfig.Name, reason))
 				{
 					return;
 				}
-				connection.Client().Disconnect(FailureMessage(exception, "Unable to connect to backend server"));
+				connection.Client.Disconnect(FailureMessage(exception, "Unable to connect to backend server"));
 			}
 		}
 
@@ -323,12 +272,12 @@ namespace EnderPearl.Backend
 				this.completion = completion;
 			}
 
-			public void OnReady(BackendSession backend)
+			public override void OnReady(BackendSession backend)
 			{
 				BackendSwitcher.SendMessage(connection, "Joining " + backendConfig.Name + "...");
 			}
 
-			public void OnStartGame(BackendSession backend)
+			public override void OnStartGame(BackendSession backend)
 			{
 				BackendSession? previous = connection.ReplaceBackend(backendConfig.Name, backend);
 				if (previous != null && !ReferenceEquals(previous, backend) && previous.IsConnected)
@@ -339,7 +288,7 @@ namespace EnderPearl.Backend
 				completion.TrySetResult();
 			}
 
-			public void OnFailure(BackendSession? backend, Exception exception)
+			public override void OnFailure(BackendSession? backend, Exception exception)
 			{
 				// The switch lock is the caller's; releasing it here would let a second switch start
 				// in the middle of a retry sequence.
@@ -358,17 +307,6 @@ namespace EnderPearl.Backend
 			}
 		}
 
-		public BackendFailover Failover() => failover;
-
-		public ProxyPlayerEnum PlayerEnum() => playerEnum;
-
-		public BackendSwitcher Switcher() => switcher;
-
-		public void SetNetworkCommands(NetworkCommands networkCommands)
-		{
-			this.networkCommands = networkCommands;
-		}
-
 		private void ConnectInternal(
 			ProxyConnection connection,
 			BackendConfig backendConfig,
@@ -378,31 +316,19 @@ namespace EnderPearl.Backend
 		{
 			Logger.Info(
 				$"Dialing backend {backendConfig.Name} at {backendConfig.Address} (join={disconnectClientOnClose}) for {connection.ClientLogin.AuthData.DisplayName}.");
-			ProxySessionProfile previousProfile = connection.SessionProfile;
-			ProtocolBinding? binding = null;
-			var guardedActivation = new GuardedActivation(connection, previousProfile, disconnectClientOnClose, activation);
 			try
 			{
-				BackendProtocol backendProtocol = ResolveBackendProtocol(backendConfig, connection);
-				binding = ResolveBinding(connection, backendConfig, backendProtocol);
-				connection.SetSessionProfile(ProxySessionProfile.From(binding));
-				connection.SetBackendLogin(BuildBackendLogin(connection, binding, backendConfig, backendProtocol));
+				BackendProtocol backendProtocol = ResolveBackendProtocol(backendConfig);
+				connection.SetBackendLogin(BuildBackendLogin(connection, backendConfig, backendProtocol));
 				if (ProxyConnection.IsPacketTracingConfigured())
 				{
 					Logger.Info(
-						$"Selected backend {backendConfig.Name} protocol {VersionName(backendProtocol.MinecraftVersion, backendProtocol.ProtocolVersion)} for client {VersionName(connection.Client().ClientCodec!.MinecraftVersion, connection.Client().ClientCodec!.ProtocolVersion)}.");
+						$"Selected backend {backendConfig.Name} protocol {VersionName(backendProtocol.MinecraftVersion, backendProtocol.ProtocolVersion)} for client {BedrockCodecInfo.Current}.");
 				}
 			}
 			catch (UnsupportedVersionPairException exception)
 			{
-				// Java's catch restored the session profile unconditionally (the guarded activation's
-				// own restore is switch-only); a failed binding resolution must not leave the newer
-				// profile installed for the rest of the session.
-				if (previousProfile != null)
-				{
-					connection.SetSessionProfile(previousProfile);
-				}
-				guardedActivation.OnFailure(null, exception);
+				activation.OnFailure(null, exception);
 				throw;
 			}
 
@@ -423,49 +349,35 @@ namespace EnderPearl.Backend
 				{
 					connection.SetPendingBackend(createdSession);
 				}
-				EnderPearl.Codec.CodecDefinitionState.InstallFallbacks(createdSession);
-				createdSession.SetPacketHandler(new BackendInitialPacketHandler(
-					connection,
-					createdSession,
-					backendConfig.Name,
-					new BackendCommandRouter(
-						backendDirectory,
-						switcher,
-						networkCommands,
-						permissions,
-						policy.Security
-					),
-					commandRegistry,
-					backendDirectory,
-					switcher,
-					guardedActivation,
-					verifiedXuidLookup,
-					failover,
-					joinFailover,
-					permissions,
-					playerEnum,
-					policy.Commands
-				));
+				createdSession.SetPacketHandler(new BackendInitialPacketHandler
+				{
+					Connection = connection,
+					Backend = createdSession,
+					BackendName = backendConfig.Name,
+					CommandRouter = new BackendCommandRouter(),
+					CommandManager = CommandManager,
+					BackendSwitcher = Switcher,
+					Activation = activation,
+					Failover = Failover,
+					JoinFailover = JoinFailover
+				});
 				// Handler first, read loop second (Java's initSession ordering).
 				createdSession.StartReading();
 			}
 			catch (Exception exception)
 			{
-				if (!disconnectClientOnClose && previousProfile != null)
-				{
-					connection.SetSessionProfile(previousProfile);
-				}
 				// onFailure must run anyway - it is the only report the caller gets, and skipping it
 				// for the most ordinary failure of all ("the backend is down") leaves a player stuck.
-				guardedActivation.OnFailure(createdSession, new InvalidOperationException(
+				activation.OnFailure(createdSession, new InvalidOperationException(
 					"Unable to connect to backend " + backendConfig.Address, exception));
 				throw new InvalidOperationException("Unable to connect to backend " + backendConfig.Address, exception);
 			}
 
 			BackendSession backend = createdSession!;
-			var request = new RequestNetworkSettingsPacket();
-			request.ClientNetworkVersion = binding!.BackendCodec.ProtocolVersion;
-			backend.SendPacketImmediately(request);
+			backend.SendPacketImmediately(new RequestNetworkSettingsPacket
+			{
+				ClientNetworkVersion = BedrockCodecInfo.Current.ProtocolVersion
+			});
 		}
 
 		private RakNet.Conn Dial(IPEndPoint address)
@@ -478,32 +390,12 @@ namespace EnderPearl.Backend
 			// Java set RAK_CONNECT_TIMEOUT from switch.connectTimeoutMillis (default 5000ms); without
 			// it a dead backend costs the RakNet library's full 10s session timeout per attempt, which
 			// halves the number of tries that fit inside the /server retry window.
-			return dialer.DialTimeoutInternal(address.ToString(), TimeSpan.FromMilliseconds(switchConfig.ConnectTimeoutMillis));
-		}
-
-		private ProtocolBinding ResolveBinding(
-			ProxyConnection connection,
-			BackendConfig backendConfig,
-			BackendProtocol backendProtocol
-		)
-		{
-			int clientProtocol = connection.Client().ClientCodec!.ProtocolVersion;
-			if (!protocolRegistry.TryFindBinding(clientProtocol, backendProtocol.ProtocolVersion, out ProtocolBinding? binding))
-			{
-				throw new UnsupportedVersionPairException(
-					"This client and backend version pair is not supported: client "
-					+ VersionName(connection.Client().ClientCodec!.MinecraftVersion, clientProtocol)
-					+ " cannot connect to backend "
-					+ VersionName(backendProtocol.MinecraftVersion, backendProtocol.ProtocolVersion)
-					+ "."
-				);
-			}
-			return binding!;
+			return dialer.DialTimeoutInternal(address.ToString(), TimeSpan.FromMilliseconds(ProxyServer.Policy.BackendSwitch.ConnectTimeoutMillis));
 		}
 
 		private sealed record BackendProtocol(int ProtocolVersion, string MinecraftVersion);
 
-		private BackendProtocol ResolveBackendProtocol(BackendConfig backendConfig, ProxyConnection connection)
+		private BackendProtocol ResolveBackendProtocol(BackendConfig backendConfig)
 		{
 			// A backend's own setting wins over the global one. During an upgrade the fleet is always
 			// mixed, so speaking the wrong version gets the login rejected as LOGIN_FAILED_CLIENT_OLD.
@@ -511,27 +403,28 @@ namespace EnderPearl.Backend
 			{
 				return new BackendProtocol(backendConfig.Protocol.ProtocolVersion, backendConfig.Protocol.MinecraftVersion);
 			}
-			if (backendProtocolOverride != null)
+			BedrockCodecInfo? overrideCodec = ProxyServer.Config.BackendProtocol;
+			if (overrideCodec != null)
 			{
-				return new BackendProtocol(backendProtocolOverride.ProtocolVersion, backendProtocolOverride.MinecraftVersion);
+				return new BackendProtocol(overrideCodec.ProtocolVersion, overrideCodec.MinecraftVersion);
 			}
 
 			BackendProtocolDetector.PongResult pong;
 			try
 			{
-				pong = backendProtocolDetector.Detect(backendConfig.Address);
+				pong = protocolDetector.Detect(backendConfig.Address);
 			}
 			catch (Exception exception)
 			{
 				// Probing is a convenience, not a requirement: some builds answer the unconnected ping
 				// with a truncated pong that carries no version payload. Assume the backend matches the
-				// client rather than refusing a join we have not actually tried.
-				return AssumeClientProtocol(backendConfig, connection, exception);
+				// proxy rather than refusing a join we have not actually tried.
+				return AssumeSupportedProtocol(backendConfig, exception);
 			}
 
 			int protocolVersion = pong.ProtocolVersion;
 			string minecraftVersion = pong.Version;
-			if (!protocolRegistry.TryFindBackendCodec(protocolVersion, out _))
+			if (protocolVersion != BedrockCodecInfo.Current.ProtocolVersion)
 			{
 				throw new UnsupportedVersionPairException(
 					"Unsupported backend version "
@@ -542,22 +435,12 @@ namespace EnderPearl.Backend
 			return new BackendProtocol(protocolVersion, minecraftVersion);
 		}
 
-		private BackendProtocol AssumeClientProtocol(
-			BackendConfig backendConfig,
-			ProxyConnection connection,
-			Exception cause
-		)
+		private static BackendProtocol AssumeSupportedProtocol(BackendConfig backendConfig, Exception cause)
 		{
-			BedrockCodecInfo clientCodec = connection.Client().ClientCodec!;
-			if (!protocolRegistry.TryFindBackendCodec(clientCodec.ProtocolVersion, out _))
-			{
-				throw new UnsupportedVersionPairException(
-					"Unable to detect backend protocol for " + backendConfig.Name + " at " + backendConfig.Address + ".",
-					cause);
-			}
+			BedrockCodecInfo assumed = BedrockCodecInfo.Current;
 			Logger.Info(
-				$"WARNING: {backendConfig.Name} at {backendConfig.Address} did not answer the protocol probe ({cause.Message}). Assuming it speaks the client's {VersionName(clientCodec.MinecraftVersion, clientCodec.ProtocolVersion)}; set backend.protocol in the config to skip probing.");
-			return new BackendProtocol(clientCodec.ProtocolVersion, clientCodec.MinecraftVersion);
+				$"WARNING: {backendConfig.Name} at {backendConfig.Address} did not answer the protocol probe ({cause.Message}). Assuming it speaks {assumed}; set backend.protocol in the config to skip probing.");
+			return new BackendProtocol(assumed.ProtocolVersion, assumed.MinecraftVersion);
 		}
 
 		private static string VersionName(string? minecraftVersion, int protocolVersion)
@@ -591,54 +474,23 @@ namespace EnderPearl.Backend
 
 		private LoginPacket BuildBackendLogin(
 			ProxyConnection connection,
-			ProtocolBinding binding,
 			BackendConfig backendConfig,
 			BackendProtocol backendProtocol
 		)
 		{
-			int backendProtocolVersion = binding.BackendCodec.ProtocolVersion;
+			int backendProtocolVersion = backendProtocol.ProtocolVersion;
 			LogBackendIdentity(connection, backendConfig, backendProtocolVersion);
 			// Java used getHostString()+":"+port - the host exactly as configured, no reverse lookup.
 			string serverAddress = backendConfig.HostString + ":" + backendConfig.Address.Port;
 			// This build only ever talks to 1.26.10+ servers, which expect the modern OIDC token format.
-			LoginPacket backendLogin = onlineLoginForge.Forge(
+			LoginPacket backendLogin = OnlineLoginForge.Forge(
 				connection.KeyPair,
 				connection.ClientLogin,
 				backendProtocol.MinecraftVersion,
 				serverAddress,
-				mimicIdentity
+				ProxyServer.MimicIdentity
 			);
 			return backendLogin;
-		}
-
-		private sealed class GuardedActivation : BackendActivation
-		{
-			private readonly ProxyConnection connection;
-			private readonly ProxySessionProfile? previousProfile;
-			private readonly bool disconnectClientOnClose;
-			private readonly BackendActivation inner;
-
-			public GuardedActivation(ProxyConnection connection, ProxySessionProfile? previousProfile,
-				bool disconnectClientOnClose, BackendActivation inner)
-			{
-				this.connection = connection;
-				this.previousProfile = previousProfile;
-				this.disconnectClientOnClose = disconnectClientOnClose;
-				this.inner = inner;
-			}
-
-			public void OnReady(BackendSession backend) => inner.OnReady(backend);
-
-			public void OnStartGame(BackendSession backend) => inner.OnStartGame(backend);
-
-			public void OnFailure(BackendSession? backend, Exception exception)
-			{
-				if (!disconnectClientOnClose && previousProfile != null)
-				{
-					connection.SetSessionProfile(previousProfile);
-				}
-				inner.OnFailure(backend, exception);
-			}
 		}
 	}
 }

@@ -1,4 +1,4 @@
-using EnderPearl.Net;
+﻿using EnderPearl.Core;
 using global::Protocol.Packets;
 
 namespace EnderPearl.Backend

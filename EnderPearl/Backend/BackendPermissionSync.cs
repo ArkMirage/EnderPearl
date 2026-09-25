@@ -1,5 +1,5 @@
-using System;
-using EnderPearl.Net;
+﻿using System;
+using EnderPearl.Core;
 using global::Protocol;
 
 namespace EnderPearl.Backend

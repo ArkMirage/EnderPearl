@@ -2,7 +2,8 @@
 using System.Threading;
 using System.Threading.Tasks;
 using EnderPearl.Config;
-using EnderPearl.Logging;
+using EnderPearl.Core;
+using EnderPearl.Player;
 
 namespace EnderPearl.Backend
 {
@@ -50,7 +51,7 @@ namespace EnderPearl.Backend
 						return Abandon(connection, target, "the switch was cancelled");
 					}
 					// Still running: fall through to the poll checks below.
-					if (!connection.Client().IsConnected)
+					if (!connection.Client.IsConnected)
 					{
 						return Abandon(connection, target, "the player disconnected");
 					}

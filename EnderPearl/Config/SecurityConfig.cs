@@ -13,67 +13,61 @@ namespace EnderPearl.Config
 	/// </summary>
 	public sealed class SecurityConfig
 	{
-		public bool SendConnectionCookie { get; }
+		public bool SendConnectionCookie { get; init; }
 
-		public int MaxConnectionsPerAddress { get; }
+		private int maxConnectionsPerAddress;
 
-		public int MaxConnectionAttempts { get; }
+		public int MaxConnectionsPerAddress { get => maxConnectionsPerAddress; init => maxConnectionsPerAddress = Checked(value, 1, "maxConnectionsPerAddress must be positive"); }
 
-		public long ConnectionAttemptWindowMillis { get; }
+		private int maxConnectionAttempts;
 
-		public bool RequireXuid { get; }
+		public int MaxConnectionAttempts { get => maxConnectionAttempts; init => maxConnectionAttempts = Checked(value, 1, "maxConnectionAttempts must be positive"); }
 
-		public long CommandCooldownMillis { get; }
+		private long connectionAttemptWindowMillis;
 
-		public SecurityConfig(
-			bool sendConnectionCookie,
-			int maxConnectionsPerAddress,
-			int maxConnectionAttempts,
-			long connectionAttemptWindowMillis,
-			bool requireXuid,
-			long commandCooldownMillis)
+		public long ConnectionAttemptWindowMillis { get => connectionAttemptWindowMillis; init => connectionAttemptWindowMillis = Checked(value, 0, "connectionAttemptWindowMillis cannot be negative"); }
+
+		public bool RequireXuid { get; init; }
+
+		private long commandCooldownMillis;
+
+		public long CommandCooldownMillis { get => commandCooldownMillis; init => commandCooldownMillis = Checked(value, 0, "commandCooldownMillis cannot be negative"); }
+
+		private static T Checked<T>(T value, T floor, string message) where T : IComparable<T>
 		{
-			if (maxConnectionsPerAddress < 1)
+			if (value.CompareTo(floor) < 0)
 			{
-				throw new ArgumentException("maxConnectionsPerAddress must be positive");
+				throw new ArgumentException(message);
 			}
-			if (maxConnectionAttempts < 1)
-			{
-				throw new ArgumentException("maxConnectionAttempts must be positive");
-			}
-			if (connectionAttemptWindowMillis < 0)
-			{
-				throw new ArgumentException("connectionAttemptWindowMillis cannot be negative");
-			}
-			if (commandCooldownMillis < 0)
-			{
-				throw new ArgumentException("commandCooldownMillis cannot be negative");
-			}
-			SendConnectionCookie = sendConnectionCookie;
-			MaxConnectionsPerAddress = maxConnectionsPerAddress;
-			MaxConnectionAttempts = maxConnectionAttempts;
-			ConnectionAttemptWindowMillis = connectionAttemptWindowMillis;
-			RequireXuid = requireXuid;
-			CommandCooldownMillis = commandCooldownMillis;
+			return value;
 		}
 
 		public static SecurityConfig Defaults()
 		{
-			return new SecurityConfig(true, 64, 8, 10_000, true, 1_000);
+			return new SecurityConfig
+			{
+				SendConnectionCookie = true,
+				MaxConnectionsPerAddress = 64,
+				MaxConnectionAttempts = 8,
+				ConnectionAttemptWindowMillis = 10_000,
+				RequireXuid = true,
+				CommandCooldownMillis = 1_000
+			};
 		}
 
 		public static SecurityConfig From(JsonConfig config)
 		{
 			SecurityConfig defaults = Defaults();
-			return new SecurityConfig(
-				config.GetBool("security.sendConnectionCookie", defaults.SendConnectionCookie),
-				config.GetInt("security.maxConnectionsPerAddress", defaults.MaxConnectionsPerAddress),
-				config.GetInt("security.maxConnectionAttempts", defaults.MaxConnectionAttempts),
-				config.GetInt("security.connectionAttemptWindowMillis",
+			return new SecurityConfig
+			{
+				SendConnectionCookie = config.GetBool("security.sendConnectionCookie", defaults.SendConnectionCookie),
+				MaxConnectionsPerAddress = config.GetInt("security.maxConnectionsPerAddress", defaults.MaxConnectionsPerAddress),
+				MaxConnectionAttempts = config.GetInt("security.maxConnectionAttempts", defaults.MaxConnectionAttempts),
+				ConnectionAttemptWindowMillis = config.GetInt("security.connectionAttemptWindowMillis",
 					(int)defaults.ConnectionAttemptWindowMillis),
-				config.GetBool("security.requireXuid", defaults.RequireXuid),
-				config.GetInt("security.commandCooldownMillis", (int)defaults.CommandCooldownMillis)
-			);
+				RequireXuid = config.GetBool("security.requireXuid", defaults.RequireXuid),
+				CommandCooldownMillis = config.GetInt("security.commandCooldownMillis", (int)defaults.CommandCooldownMillis)
+			};
 		}
 
 		/// <summary>The <c>"security"</c> section of the generated default configuration.</summary>

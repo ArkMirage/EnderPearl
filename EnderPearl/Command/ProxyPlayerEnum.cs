@@ -1,6 +1,6 @@
 ﻿using EnderPearl.Permission;
 using EnderPearl.Backend;
-using EnderPearl.Session;
+using EnderPearl.Player;
 using global::Protocol.Packets;
 
 namespace EnderPearl.Command
@@ -23,12 +23,12 @@ namespace EnderPearl.Command
 		/// <summary>Velocity's spelling, and what an admin reaches for when moving the whole network.</summary>
 		public const string ALL = "all";
 
-		private readonly ConnectedPlayerRegistry? connectedPlayers;
+		private readonly ConnectedPlayerRegistry connectedPlayers;
 		private readonly ProxyPermissions permissions;
 
-		public ProxyPlayerEnum(ConnectedPlayerRegistry? connectedPlayers, ProxyPermissions permissions)
+		public ProxyPlayerEnum(ConnectedPlayerRegistry connectedPlayers, ProxyPermissions permissions)
 		{
-			this.connectedPlayers = connectedPlayers;
+			this.connectedPlayers = connectedPlayers ?? throw new ArgumentNullException(nameof(connectedPlayers));
 			this.permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));
 		}
 
@@ -58,10 +58,6 @@ namespace EnderPearl.Command
 		/// </summary>
 		public void Broadcast()
 		{
-			if (connectedPlayers == null)
-			{
-				return;
-			}
 			List<string> options = Values();
 			foreach (ProxyConnection connection in connectedPlayers.Connections())
 			{
@@ -73,13 +69,13 @@ namespace EnderPearl.Command
 				packet.EnumName = NAME;
 				packet.Values = new List<string>(options);
 				packet.UpdateType = global::Protocol.SoftEnumUpdateType.Replace;
-				connection.Client().SendPacket(packet);
+				connection.Client.SendPacket(packet);
 			}
 		}
 
 		private bool MayReceive(ProxyConnection connection)
 		{
-			if (!connection.Client().IsConnected || !connection.HasClientJoinedWorld())
+			if (!connection.Client.IsConnected || !connection.HasClientJoinedWorld())
 			{
 				return false;
 			}
@@ -95,10 +91,6 @@ namespace EnderPearl.Command
 			// Insertion order matters for stable autocomplete; duplicate gamertags collapse onto one
 			// value the way Java's LinkedHashMap did.
 			List<string> values = new() { ALL };
-			if (connectedPlayers == null)
-			{
-				return values;
-			}
 			foreach (ProxyConnection connection in connectedPlayers.Connections())
 			{
 				string name = connection.ClientLogin.AuthData.DisplayName;

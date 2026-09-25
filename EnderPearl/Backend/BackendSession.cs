@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Threading;
-using EnderPearl.Net;
-using EnderPearl.Session;
+using EnderPearl.Core;
+using EnderPearl.Player;
 using Protocol.Packets;
 using RakNet;
-using EnderPearl.Logging;
 
 namespace EnderPearl.Backend
 {
@@ -13,7 +12,7 @@ namespace EnderPearl.Backend
 	/// server. Java subclassed BedrockClientSession; here the transport lives in
 	/// <see cref="PacketConnection"/> and this class adds the proxy-specific state and close semantics.
 	/// </summary>
-	public sealed class BackendSession : PacketConnection, IPacketHandler
+	public sealed class BackendSession : PacketConnection
 	{
 		private volatile bool disconnectClientOnClose = true;
 		private volatile bool dropSubChunkRequests;
@@ -69,7 +68,7 @@ namespace EnderPearl.Backend
 		{
 			base.OnTransportClosed();
 			var connection = Connection;
-			if (disconnectClientOnClose && connection != null && connection.Client().IsConnected)
+			if (disconnectClientOnClose && connection != null && connection.Client.IsConnected)
 			{
 				// During a join sequence the next candidate is already being tried, and kicking here
 				// would end the session that sequence exists to save. JoinFailover disconnects instead,
@@ -78,7 +77,7 @@ namespace EnderPearl.Backend
 				{
 					return;
 				}
-				connection.Client().Disconnect("Backend disconnected");
+				connection.Client.Disconnect("Backend disconnected");
 			}
 		}
 

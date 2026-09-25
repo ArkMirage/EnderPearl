@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 
@@ -14,59 +14,52 @@ namespace EnderPearl.Config
 	/// </summary>
 	public sealed class FailoverConfig
 	{
-		public bool Enabled { get; }
+		public bool Enabled { get; init; }
 
-		public IReadOnlyList<string> Fallbacks { get; }
+		private IReadOnlyList<string> fallbacks = new List<string>();
 
-		public IReadOnlyDictionary<string, List<string>> BackendFallbacks { get; }
+		/// <summary>The global try-list, normalized (trimmed, de-duplicated) on assignment.</summary>
+		public IEnumerable<string> Fallbacks { get => fallbacks; init => fallbacks = ConfigValues.NormalizedList(value).AsReadOnly(); }
 
-		public ProtocolFaultPolicy ProtocolFault { get; }
+		private IReadOnlyDictionary<string, List<string>> backendFallbacks = new Dictionary<string, List<string>>();
 
-		public BackendKickAction OnBackendKick { get; }
-
-		public FailoverConfig(
-			bool enabled,
-			IEnumerable<string> fallbacks,
-			IDictionary<string, List<string>> backendFallbacks,
-			ProtocolFaultPolicy? protocolFault = null,
-			BackendKickAction onBackendKick = BackendKickAction.AUTO)
+		/// <summary>Per-backend overrides, keyed by normalized backend name; an explicitly empty list turns failover off.</summary>
+		public IReadOnlyDictionary<string, List<string>> BackendFallbacks
 		{
-			if (fallbacks == null)
-			{
-				throw new ArgumentNullException(nameof(fallbacks));
-			}
-			if (backendFallbacks == null)
-			{
-				throw new ArgumentNullException(nameof(backendFallbacks));
-			}
-			Enabled = enabled;
-			Fallbacks = ConfigValues.NormalizedList(fallbacks).AsReadOnly();
+			get => backendFallbacks;
+			init => backendFallbacks = NormalizeOverrides(value);
+		}
 
-			var normalizedOverrides = new LinkedHashMap<string, List<string>>();
-			foreach (KeyValuePair<string, List<string>> entry in backendFallbacks)
+		public ProtocolFaultPolicy ProtocolFault { get; init; } = ProtocolFaultPolicy.Defaults();
+
+		public BackendDisconnectAction OnBackendDisconnect { get; init; } = BackendDisconnectAction.AUTO;
+
+		private static IReadOnlyDictionary<string, List<string>> NormalizeOverrides(IReadOnlyDictionary<string, List<string>> overrides)
+		{
+			var normalized = new LinkedHashMap<string, List<string>>();
+			foreach (KeyValuePair<string, List<string>> entry in overrides)
 			{
-				normalizedOverrides.Add(ConfigValues.Normalize(entry.Key), ConfigValues.NormalizedList(entry.Value));
+				normalized.Add(ConfigValues.Normalize(entry.Key), ConfigValues.NormalizedList(entry.Value));
 			}
 			var asDictionary = new Dictionary<string, List<string>>();
-			foreach (KeyValuePair<string, List<string>> entry in normalizedOverrides)
+			foreach (KeyValuePair<string, List<string>> entry in normalized)
 			{
 				asDictionary[entry.Key] = entry.Value;
 			}
-			BackendFallbacks = asDictionary;
-
-			ProtocolFault = protocolFault ?? ProtocolFaultPolicy.Defaults();
-			OnBackendKick = onBackendKick;
+			return asDictionary;
 		}
 
 		/// <summary>Keeps the many callers that predate the later components on their defaults.</summary>
 		public static FailoverConfig Disabled()
 		{
-			return new FailoverConfig(
-				false,
-				new List<string>(),
-				new Dictionary<string, List<string>>(),
-				ProtocolFaultPolicy.Defaults(),
-				BackendKickAction.AUTO);
+			return new FailoverConfig
+			{
+				Enabled = false,
+				Fallbacks = new List<string>(),
+				BackendFallbacks = new Dictionary<string, List<string>>(),
+				ProtocolFault = ProtocolFaultPolicy.Defaults(),
+				OnBackendDisconnect = BackendDisconnectAction.AUTO
+			};
 		}
 
 		/// <summary>
@@ -104,8 +97,9 @@ namespace EnderPearl.Config
 		/// than a plain read on the global list and per-backend entries alike, because an explicitly
 		/// empty list is meaningful: it turns failover off.</p>
 		///
-		/// <p>A backend that kicks a player has made a decision about that player - a ban, a whitelist,
-		/// a moderation action - which is why <c>onBackendKick</c> exists; see <see cref="BackendKickAction"/>.</p>
+		/// <p>A backend that disconnects a player has made a decision about that player - a ban, a whitelist,
+		/// a moderation action - which is why <c>onBackendDisconnect</c> exists; see
+		/// <see cref="BackendDisconnectAction"/>.</p>
 		/// </summary>
 		public static FailoverConfig From(JsonConfig config, string hubBackendName)
 		{
@@ -123,13 +117,14 @@ namespace EnderPearl.Config
 						ConfigValues.NormalizedList(entry.Value.GetStringList("fallback"));
 				}
 			}
-			return new FailoverConfig(
-				enabled,
-				fallbacks,
-				backendFallbacks,
-				ProtocolFaultPolicy.From(config),
-				BackendKickActions.Parse(config.GetString("failover.onBackendKick"))
-			);
+			return new FailoverConfig
+			{
+				Enabled = enabled,
+				Fallbacks = fallbacks,
+				BackendFallbacks = backendFallbacks,
+				ProtocolFault = ProtocolFaultPolicy.From(config),
+				OnBackendDisconnect = BackendDisconnectActions.Parse(config.GetString("failover.onBackendDisconnect"))
+			};
 		}
 
 		/// <summary>The <c>"failover"</c> section of the generated default configuration.</summary>
@@ -139,7 +134,7 @@ namespace EnderPearl.Config
 			{
 				["enabled"] = true,
 				["fallbacks"] = new JsonArray(BackendConfig.DEFAULT_NAME),
-				["onBackendKick"] = BackendKickAction.AUTO.ToString().ToLowerInvariant()
+				["onBackendDisconnect"] = BackendDisconnectAction.AUTO.ToString().ToLowerInvariant()
 			};
 		}
 	}

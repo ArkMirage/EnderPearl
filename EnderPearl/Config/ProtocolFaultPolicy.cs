@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Text.Json.Nodes;
-using EnderPearl.Logging;
+using EnderPearl.Core;
 
 namespace EnderPearl.Config
 {
