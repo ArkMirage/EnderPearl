@@ -114,9 +114,10 @@ namespace EnderPearl.Frontend
 					}
 				}
 			}
+			int advertisedProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
 			Logger.Info(
-				$"EnderPearl listening on {listen.Address}:{listen.Port} as '{ProxyServer.Config.Motd}' for Bedrock {BedrockCodecInfo.Current.MinecraftVersion} "
-				+ $"(protocol {BedrockCodecInfo.Current.ProtocolVersion}), backend protocol {BackendProtocolDescription()}. "
+				$"EnderPearl listening on {listen.Address}:{listen.Port} as '{ProxyServer.Config.Motd}' for Bedrock protocol {advertisedProtocol}, "
+				+ $"backend protocol auto-detected. "
 				+ $"Backend placeholder: {ProxyServer.Config.Backend.Name} {ProxyServer.Config.Backend.Address}.");
 			console.Start();
 		}
@@ -307,12 +308,12 @@ namespace EnderPearl.Frontend
 		private PongBuilder Advertisement()
 		{
 			int port = ProxyServer.Config.ListenAddress.Port;
-			BedrockCodecInfo advertisedCodec = BedrockCodecInfo.Current;
+			int advertisedProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
 			return new PongBuilder()
 				.Field("MCPE")
 				.Field(ProxyServer.Config.Motd)
-				.Field(advertisedCodec.ProtocolVersion.ToString())
-				.Field(advertisedCodec.MinecraftVersion)
+				.Field(advertisedProtocol.ToString())
+				.Field(advertisedProtocol.ToString())
 				.Field(ProxyServer.ConnectedPlayers.Size().ToString())
 				.Field(ProxyServer.Config.MaxPlayers.ToString())
 				.Field(serverId.ToString())
@@ -323,13 +324,6 @@ namespace EnderPearl.Frontend
 				.Field(port.ToString())
 				.Field("0")
 				.Field("");
-		}
-
-		private string BackendProtocolDescription()
-		{
-			return ProxyServer.Config.BackendProtocol == null
-				? "auto"
-				: ProxyServer.Config.BackendProtocol.MinecraftVersion + " (protocol " + ProxyServer.Config.BackendProtocol.ProtocolVersion + ")";
 		}
 
 		private List<string> BackendsNamesInOrder()

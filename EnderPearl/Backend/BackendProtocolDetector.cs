@@ -8,7 +8,7 @@ namespace EnderPearl.Backend
 {
 	/// <summary>
 	/// Probes a backend's protocol by sending one RakNet unconnected ping over a throwaway UDP socket
-	/// and parsing the pong's advertisement string. Used when backend.protocol is "auto".
+	/// and parsing the pong's advertisement string.
 	/// </summary>
 	public sealed class BackendProtocolDetector
 	{

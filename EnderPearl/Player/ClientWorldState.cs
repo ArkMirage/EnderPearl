@@ -297,7 +297,6 @@ namespace EnderPearl.Player
 				{
 					EventType = BossEventUpdateType.Remove,
 					TargetActorID = new ActorUniqueID { Value = bossBar },
-					PlayerID = new ActorUniqueID(),
 					Name = "",
 					FilteredName = ""
 				});

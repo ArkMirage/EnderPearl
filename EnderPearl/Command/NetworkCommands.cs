@@ -1,4 +1,4 @@
-﻿using EnderPearl.Backend;
+using EnderPearl.Backend;
 using EnderPearl.Config;
 using EnderPearl.Permission;
 using EnderPearl.Player;
@@ -272,7 +272,7 @@ namespace EnderPearl.Command
 		// ------------------------------------------------------------------- perm
 
 		/// <summary>
-		/// <c>/perm set|unset|info|list [player] [node]</c>.
+		/// <c>/perm set|unset|info|list|permission [player] [node]</c>.
 		///
 		/// <para>The console can always run this, which is what stops a proxy becoming unadministrable: an
 		/// operator with no <c>Permissions.admins</c> entry grants themselves <c>admin</c> from the
@@ -291,6 +291,11 @@ namespace EnderPearl.Command
 				case "list":
 				{
 					PermissionList(sender);
+					break;
+				}
+				case "permission":
+				{
+					PermissionNodes(sender);
 					break;
 				}
 				case "info":
@@ -324,7 +329,22 @@ namespace EnderPearl.Command
 
 		private void PermissionUsage(CommandSender sender)
 		{
-			sender.SendMessage("Usage: /perm set|unset <player> <node>, /perm info <player>, /perm list");
+			sender.SendMessage("Usage: /perm set|unset <player> <node>, /perm info <player>, /perm list, /perm permission");
+		}
+
+		/// <summary>
+		/// <c>/perm permission</c>: every node that can be granted, which is exactly what <c>/perm set</c>
+		/// accepts. The same list a misspelled node is answered with, offered as a command of its own so an
+		/// operator can read it before typing a node rather than after being told it was wrong.
+		/// </summary>
+		private void PermissionNodes(CommandSender sender)
+		{
+			List<string> nodes = KnownNodes();
+			sender.SendMessage("Grantable permission nodes (" + nodes.Count + "):");
+			foreach (string node in nodes)
+			{
+				sender.SendMessage("  " + node);
+			}
 		}
 
 		private void PermissionList(CommandSender sender)

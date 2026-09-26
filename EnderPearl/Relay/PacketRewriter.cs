@@ -438,10 +438,7 @@ namespace EnderPearl.Relay
 				{
 					bossEvent.TargetActorID.Value = connection.SwapClientUniqueEntityId(bossEvent.TargetActorID.Value);
 				}
-				if (bossEvent.PlayerID != null)
-				{
-					bossEvent.PlayerID.Value = connection.SwapClientUniqueEntityId(bossEvent.PlayerID.Value);
-				}
+		
 				bossEvent.InvalidateWireCache();
 			}
 			else if (packet is UpdateTradePacket updateTrade)

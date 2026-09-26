@@ -321,8 +321,9 @@ namespace EnderPearl.Backend
 				connection.SetBackendLogin(BuildBackendLogin(connection, backendConfig, backendProtocol));
 				if (ProxyConnection.IsPacketTracingConfigured())
 				{
+					int clientProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
 					Logger.Info(
-						$"Selected backend {backendConfig.Name} protocol {VersionName(backendProtocol.MinecraftVersion, backendProtocol.ProtocolVersion)} for client {BedrockCodecInfo.Current}.");
+						$"Selected backend {backendConfig.Name} protocol {VersionName(backendProtocol.MinecraftVersion, backendProtocol.ProtocolVersion)} for client protocol {clientProtocol}.");
 				}
 			}
 			catch (UnsupportedVersionPairException exception)
@@ -375,7 +376,7 @@ namespace EnderPearl.Backend
 			BackendSession backend = createdSession!;
 			backend.SendPacketImmediately(new RequestNetworkSettingsPacket
 			{
-				ClientNetworkVersion = BedrockCodecInfo.Current.ProtocolVersion
+				ClientNetworkVersion = (int)global::Protocol.ProtocolVersion.VERSION
 			});
 		}
 
@@ -392,22 +393,10 @@ namespace EnderPearl.Backend
 			return dialer.DialTimeoutInternal(address.ToString(), TimeSpan.FromMilliseconds(ProxyServer.Policy.BackendSwitch.ConnectTimeoutMillis));
 		}
 
-		private sealed record BackendProtocol(int ProtocolVersion, string MinecraftVersion);
+		private sealed record BackendProtocol(int ProtocolVersion, string? MinecraftVersion);
 
 		private BackendProtocol ResolveBackendProtocol(BackendConfig backendConfig)
 		{
-			// A backend's own setting wins over the global one. During an upgrade the fleet is always
-			// mixed, so speaking the wrong version gets the login rejected as LOGIN_FAILED_CLIENT_OLD.
-			if (backendConfig.Protocol != null)
-			{
-				return new BackendProtocol(backendConfig.Protocol.ProtocolVersion, backendConfig.Protocol.MinecraftVersion);
-			}
-			BedrockCodecInfo? overrideCodec = ProxyServer.Config.BackendProtocol;
-			if (overrideCodec != null)
-			{
-				return new BackendProtocol(overrideCodec.ProtocolVersion, overrideCodec.MinecraftVersion);
-			}
-
 			BackendProtocolDetector.PongResult pong;
 			try
 			{
@@ -423,7 +412,7 @@ namespace EnderPearl.Backend
 
 			int protocolVersion = pong.ProtocolVersion;
 			string minecraftVersion = pong.Version;
-			if (protocolVersion != BedrockCodecInfo.Current.ProtocolVersion)
+			if (protocolVersion != (int)global::Protocol.ProtocolVersion.VERSION)
 			{
 				throw new UnsupportedVersionPairException(
 					"Unsupported backend version "
@@ -436,10 +425,10 @@ namespace EnderPearl.Backend
 
 		private static BackendProtocol AssumeSupportedProtocol(BackendConfig backendConfig, Exception cause)
 		{
-			BedrockCodecInfo assumed = BedrockCodecInfo.Current;
+			int assumed = (int)global::Protocol.ProtocolVersion.VERSION;
 			Logger.Info(
-				$"WARNING: {backendConfig.Name} at {backendConfig.Address} did not answer the protocol probe ({cause.Message}). Assuming it speaks {assumed}; set backend.protocol in the config to skip probing.");
-			return new BackendProtocol(assumed.ProtocolVersion, assumed.MinecraftVersion);
+				$"WARNING: {backendConfig.Name} at {backendConfig.Address} did not answer the protocol probe ({cause.Message}). Assuming it speaks protocol {assumed}.");
+			return new BackendProtocol(assumed, null);
 		}
 
 		private static string VersionName(string? minecraftVersion, int protocolVersion)

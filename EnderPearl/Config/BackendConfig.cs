@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Text.Json.Nodes;
-using EnderPearl.Protocol;
 
 namespace EnderPearl.Config
 {
@@ -42,9 +41,6 @@ namespace EnderPearl.Config
 		/// </summary>
 		public string HostString { get => hostString ?? Address.Address.ToString(); init => hostString = value; }
 
-		/// <summary>The Minecraft version this backend runs, or null to inherit the global setting.</summary>
-		public BedrockCodecInfo? Protocol { get; init; }
-
 		/// <summary>Whether SubChunkRequests are withheld from this backend; inferred when never configured.</summary>
 		public bool DropSubChunkRequests { get; init; }
 
@@ -76,7 +72,6 @@ namespace EnderPearl.Config
 				{
 					Name = name,
 					Address = InetEndpoints.Resolve(host, entry.Value.GetInt("port", DEFAULT_PORT)),
-					Protocol = BedrockCodecInfo.FromConfig(entry.Value.GetString("protocol")),
 					HostString = host,
 					DropSubChunkRequests = entry.Value.GetBool("dropSubChunkRequests", false)
 				});

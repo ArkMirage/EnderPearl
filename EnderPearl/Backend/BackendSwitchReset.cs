@@ -300,7 +300,7 @@ namespace EnderPearl.Backend
 			if (connection.IsPacketTraceActive())
 			{
 				Logger.Info(
-					$"Initialized player immediately after switch to {backendName}: backend protocol {BedrockCodecInfo.Current.ProtocolVersion} drives its own respawn and sends no post-switch SERVER_READY to wait for.");
+					$"Initialized player immediately after switch to {backendName}: backend protocol {ProtocolVersion.VERSION} drives its own respawn and sends no post-switch SERVER_READY to wait for.");
 				// Java printed this same line after both branches; its wording predates the modern
 				// immediate-initialize path and is kept for log parity.
 				Logger.Info(

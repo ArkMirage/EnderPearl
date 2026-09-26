@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -106,6 +106,7 @@ namespace EnderPearl.Core
 			{
 				uint len = 0;
 				long pos = reader.Position;
+				int id = -1;
 				try
 				{
 					len = VarInt.ReadUInt32(reader);
@@ -118,7 +119,7 @@ namespace EnderPearl.Core
 					}
 					ReadOnlyMemory<byte> internalBuffer = _memory.Slice((int)(reader.Position), (int)len);
 					// Packet id prefix is an UNSIGNED varint.
-					int id = (int)VarInt.ReadUInt32(reader);
+					id = (int)VarInt.ReadUInt32(reader);
 
 					IPacket packet = PacketRegistry.CreatePacket(id);
 					packet.Decode(internalBuffer);
@@ -128,10 +129,22 @@ namespace EnderPearl.Core
 					}
 					_return.Add(packet);
 				}
-				catch
+				catch (Exception exception)
 				{
-					return _return;
+					if (len == 0 || pos + len > _memory.Length)
+					{
+						// The frame boundary is unknown, so there is nothing to resynchronise on: stop here
+						// rather than guessing, but say so instead of dropping the tail in silence.
+						Logger.Error($"Unreadable packet frame at offset {pos}: {exception.Message}");
+						return _return;
+					}
+					// One frame failed to decode. Skip exactly that frame and keep the rest of the batch:
+					// abandoning everything after it turns a single codec defect into unexplained mass
+					// packet loss (missing chunks, dead inventory).
+					Logger.Error($"Dropped packet id {id} ({len} bytes at offset {pos}): {exception.Message}");
 				}
+				// Step over this frame on every path that did not bail out early. The successfully decoded
+				// path needs this just as much as the skip path, or the loop re-reads the same frame.
 				reader.Position = pos + len;
 			}
 			if (reader.Length > reader.Position)

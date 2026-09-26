@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ArkMirage.BedrockProtocol" Version="1.26.40-v2168" />
+    <PackageReference Include="ArkMirage.BedrockProtocol" Version="1.26.51-v2193.fix1" />
     <PackageReference Include="ArkMirage.RakNet" Version="0.1.0" />
   </ItemGroup>
 

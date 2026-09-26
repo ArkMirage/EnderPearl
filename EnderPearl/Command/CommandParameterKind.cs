@@ -16,7 +16,7 @@ namespace EnderPearl.Command
 		/// <summary>A player on the network, completed from the live roster.</summary>
 		Player,
 
-		/// <summary>A permission verb: <c>set</c>, <c>unset</c>, <c>info</c> or <c>list</c>.</summary>
+		/// <summary>A permission verb: <c>set</c>, <c>unset</c>, <c>info</c>, <c>list</c> or <c>permission</c>.</summary>
 		PermissionAction,
 
 		/// <summary>A permission node, completed from the nodes that exist.</summary>

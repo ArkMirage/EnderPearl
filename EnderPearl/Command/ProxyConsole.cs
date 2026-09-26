@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using EnderPearl.Core;
 
 namespace EnderPearl.Command
@@ -84,11 +84,34 @@ namespace EnderPearl.Command
 			command.Handler(CommandSender.Console(), trimmed, CommandArguments.Split(trimmed));
 		}
 
+		/// <summary>
+		/// The encoding the terminal hands its bytes over in.
+		///
+		/// <para>Windows delivers console input in the console's input code page — the machine's OEM code
+		/// page unless it was changed, GBK on a Chinese system — so a reader pinned to UTF-8 turns every
+		/// typed non-ASCII character into a replacement character before any command sees it. That is what
+		/// stopped <c>/say</c> from speaking Chinese: the line arrived, but not as the characters that were
+		/// typed. Asking the console is also right when it has been switched to UTF-8 with <c>chcp 65001</c>.</para>
+		/// </summary>
+		private static Encoding ConsoleEncoding()
+		{
+			try
+			{
+				return Console.InputEncoding;
+			}
+			catch (IOException)
+			{
+				// No terminal to ask. The proxy carries on serving players, and a line that does arrive is
+				// still read — the same promise this reader makes when stdin is closed.
+				return Encoding.UTF8;
+			}
+		}
+
 		private void ReadLoop()
 		{
 			try
 			{
-				using StreamReader reader = new(input, Encoding.UTF8);
+				using StreamReader reader = new(input, ConsoleEncoding());
 				while (running)
 				{
 					Console.Write(">");

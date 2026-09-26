@@ -132,7 +132,7 @@ namespace EnderPearl.Command
 					new CommandName { Name = "permission", Scopes = CommandScope.Console }
 				},
 				Scopes = CommandScope.Both,
-				Usage = "perm set|unset|info|list ...",
+				Usage = "perm set|unset|info|list|permission ...",
 				Description = "grant or revoke proxy permissions",
 				// One declaration covers all four forms: the trailing arguments are optional because
 				// `list` takes neither of them and `info` takes only the player.

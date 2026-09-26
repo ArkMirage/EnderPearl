@@ -72,8 +72,9 @@ namespace EnderPearl.Frontend
 			// The protocol number is the point of this line: a client newer than the proxy is how a new
 			// Minecraft release announces itself, and that number is the first thing needed to add
 			// support for it.
+			int supportedProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
 			Logger.Info(
-				$"Rejected {Session.RemoteEndPoint} with {rejected.PlayStatus.Status}: client protocol {rejected.RequestedProtocol}, proxy speaks {BedrockCodecInfo.Current}.");
+				$"Rejected {Session.RemoteEndPoint} with {rejected.PlayStatus.Status}: client protocol {rejected.RequestedProtocol}, proxy speaks protocol {supportedProtocol}.");
 			return PacketSignal.Handled;
 		}
 

@@ -220,6 +220,26 @@ namespace EnderPearl.Relay
 			}
 			SendTargetBackendWeather();
 			SendForceCloseInventory();
+			SendCameraReset();
+		}
+
+		/// <summary>
+		/// Clears any camera the backend being left had set on the client - a cutscene camera, a fixed
+		/// boom, a first-person lock. The client keeps that camera across a seamless handoff, and the
+		/// target backend never removes what it does not know about, so without this the player stays
+		/// looking through the old server's camera until something on the new one happens to overwrite
+		/// it. Sent before the target's StartGame is forwarded, so a camera the new backend installs in
+		/// its own join burst still wins.
+		/// </summary>
+		private void SendCameraReset()
+		{
+			Connection.Client.SendPacket(new CameraInstructionPacket
+			{
+				CameraInstruction = new global::Protocol.Types.CameraInstruction
+				{
+					Clear = new Optional<bool>(true)
+				}
+			});
 		}
 
 		/// <summary>

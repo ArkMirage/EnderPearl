@@ -1,4 +1,4 @@
-﻿using EnderPearl.Backend;
+using EnderPearl.Backend;
 using EnderPearl.Core;
 using EnderPearl.Permission;
 using global::Protocol.Packets;
@@ -24,7 +24,7 @@ namespace EnderPearl.Command
 
 		private static int freeTextTypeReported;
 
-		private static readonly List<string> PERM_ACTIONS = new() { "set", "unset", "info", "list" };
+		private static readonly List<string> PERM_ACTIONS = new() { "set", "unset", "info", "list", "permission" };
 
 		// A parameter's ParseSymbol is the raw wire symbol this codec passes through untouched. The
 		// long-standing Bedrock flag bits say which table the rest of the value indexes.

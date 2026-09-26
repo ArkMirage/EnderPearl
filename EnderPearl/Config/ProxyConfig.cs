@@ -1,11 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using Protocol;
-using EnderPearl.Protocol;
 using EnderPearl.Core;
 
 namespace EnderPearl.Config
@@ -47,15 +46,13 @@ namespace EnderPearl.Config
 
 		public string HubBackendName { get; init; } = BackendConfig.DEFAULT_NAME;
 
-		public BedrockCodecInfo? BackendProtocol { get; init; }
-
-		public required ProxyPolicy Policy { get; init; }
+	public required ProxyPolicy Policy { get; init; }
 
 		private string motd = "Endstone Proxy";
 
 		public string Motd { get => motd; init => motd = Checked(value, v => !string.IsNullOrWhiteSpace(v), "motd cannot be blank"); }
 
-		public string SubMotd { get; init; } = "Bedrock " + BedrockCodecInfo.Current.MinecraftVersion;
+		public string SubMotd { get; init; } = "Bedrock " + global::Protocol.ProtocolVersion.VERSION;
 
 		private string gameType = "Survival";
 
@@ -114,11 +111,7 @@ namespace EnderPearl.Config
 			(string defaultBackendName, BackendConfig defaultBackend) = FirstBackend(backends);
 
 			string hubBackendName = config.GetString("hubBackend", defaultBackendName);
-			// The global protocol pin applies to every backend without its own "protocol"; null ("auto")
-			// lets each connection be probed at startup instead.
-			BedrockCodecInfo? backendProtocol =
-				BedrockCodecInfo.FromConfig(config.GetString("protocol", "auto"));
-			string defaultSubMotd = "Bedrock " + BedrockCodecInfo.Current.MinecraftVersion;
+			string defaultSubMotd = "Bedrock " + global::Protocol.ProtocolVersion.VERSION;
 
 			FailoverConfig failover = FailoverConfig.From(config, hubBackendName);
 			return new ProxyConfig
@@ -127,7 +120,6 @@ namespace EnderPearl.Config
 				Backend = defaultBackend,
 				Backends = backends,
 				HubBackendName = hubBackendName,
-				BackendProtocol = backendProtocol,
 				Policy = new ProxyPolicy
 				{
 					Failover = failover,
@@ -162,7 +154,7 @@ namespace EnderPearl.Config
 		/// <summary>The configuration written when no config file exists yet: every section's template composed.</summary>
 		public static JsonObject DefaultConfig()
 		{
-			string defaultSubMotd = "Bedrock " + BedrockCodecInfo.Current.MinecraftVersion;
+			string defaultSubMotd = "Bedrock " + global::Protocol.ProtocolVersion.VERSION;
 			return new JsonObject
 			{
 				["listener"] = new JsonObject
@@ -170,7 +162,6 @@ namespace EnderPearl.Config
 					["host"] = DEFAULT_LISTEN_HOST,
 					["port"] = DEFAULT_LISTEN_PORT
 				},
-				["protocol"] = "auto",
 				["backends"] = BackendConfig.DefaultSection(),
 				["hubBackend"] = BackendConfig.DEFAULT_NAME,
 				["failover"] = FailoverConfig.DefaultSection(),

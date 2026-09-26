@@ -37,13 +37,14 @@ namespace EnderPearl.Protocol
 		public ProtocolNegotiation Negotiate(RequestNetworkSettingsPacket packet)
 		{
 			int requestedProtocol = packet.ClientNetworkVersion;
-			if (requestedProtocol == BedrockCodecInfo.Current.ProtocolVersion)
+			int supportedProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
+			if (requestedProtocol == supportedProtocol)
 			{
 				return new ProtocolNegotiation.Accepted();
 			}
 			return new ProtocolNegotiation.Rejected(
 				requestedProtocol,
-				requestedProtocol > BedrockCodecInfo.Current.ProtocolVersion
+				requestedProtocol > supportedProtocol
 					? PlayStatus.LoginFailedServerOld
 					: PlayStatus.LoginFailedClientOld
 			);
