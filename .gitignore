@@ -44,6 +44,9 @@ ScaffoldingReadMe.txt
 *~
 CodeCoverage/
 
+# Local runtime configuration: backend addresses and settings belong to whoever runs the proxy
+/config.json
+
 # MSBuild Binary and Structured Log
 *.binlog
 
