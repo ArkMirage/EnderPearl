@@ -47,6 +47,9 @@ CodeCoverage/
 # Local runtime configuration: backend addresses and settings belong to whoever runs the proxy
 /config.json
 
+# The proxy's persistent NetherNet server identity key
+/.nethernet/
+
 # MSBuild Binary and Structured Log
 *.binlog
 

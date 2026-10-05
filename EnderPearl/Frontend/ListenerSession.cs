@@ -5,13 +5,13 @@ using EnderPearl.Core;
 using Protocol.Connection;
 using Protocol.Packets;
 using Protocol.Types;
-using RakNet;
+using EnderPearl.Transport;
 using EnderPearl.Player;
 
 namespace EnderPearl.Frontend
 {
 	/// <summary>
-	/// The client-facing leg of one proxied player: the RakNet connection the Bedrock client speaks on.
+	/// The client-facing leg of one proxied player: the NetherNet connection the Bedrock client speaks on.
 	/// Java subclassed BedrockServerSession; here the transport lives in <see cref="PacketConnection"/>
 	/// and this class adds the proxy-specific state and disconnect semantics.
 	/// </summary>
@@ -20,7 +20,7 @@ namespace EnderPearl.Frontend
 		private readonly Action<ListenerSession> closeListener;
 		private volatile bool throttled = true;
 
-		public ListenerSession(Conn conn, Action<ListenerSession> closeListener)
+		public ListenerSession(NetherNetConnection conn, Action<ListenerSession> closeListener)
 		{
 			this.closeListener = closeListener ?? throw new ArgumentNullException(nameof(closeListener));
 			Attach(conn);

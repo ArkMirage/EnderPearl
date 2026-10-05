@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -7,12 +7,12 @@
     <Nullable>enable</Nullable>
     <!-- Dependencies live inside the project folder but must not be globbed into this assembly;
          they are compiled separately via ProjectReference below. -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);RakNet/**;BedrockProtocol/**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);BedrockProtocol/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="ArkMirage.BedrockProtocol" Version="1.26.51-v2193.fix1" />
-    <PackageReference Include="ArkMirage.RakNet" Version="0.1.0" />
+    <PackageReference Include="ArkMirage.NetherNet.Endpoint" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

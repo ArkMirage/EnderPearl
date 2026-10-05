@@ -6,7 +6,6 @@ using EnderPearl.Core;
 using EnderPearl.Protocol;
 using EnderPearl.Player;
 using EnderPearl.Server;
-using global::Protocol.Codec.Connection.Encryption;
 using global::Protocol.Packets;
 
 namespace EnderPearl.Frontend
@@ -24,7 +23,6 @@ namespace EnderPearl.Frontend
 		public required OnlineLoginForge LoginForge { get; init; }
 		public required Action PlayerCountChanged { get; init; }
 
-		private byte[]? clientEncryptionKey;
 		private ProxyConnection? connection;
 		private int joinStarted;
 		private bool networkSettingsNegotiated;
@@ -91,7 +89,6 @@ namespace EnderPearl.Frontend
 				ClientLogin clientLogin = Authenticator.Authenticate(packet);
 				ECDsaHolder keyPair = BedrockCrypto.CreateKeyPair();
 				byte[] token = BedrockCrypto.RandomToken();
-				clientEncryptionKey = BedrockCrypto.SecretKey(keyPair, clientLogin.IdentityPublicKey, token);
 
 				connection = new ProxyConnection
 				{
@@ -106,14 +103,12 @@ namespace EnderPearl.Frontend
 				{
 					Session.Disconnect("This Xbox account is already connected to the proxy");
 					connection = null;
-					clientEncryptionKey = null;
 					return PacketSignal.Handled;
 				}
 				if (registration == RegistrationResult.FULL)
 				{
 					Session.Disconnect("Proxy is full");
 					connection = null;
-					clientEncryptionKey = null;
 					return PacketSignal.Handled;
 				}
 				Session.ProxyConnection = connection;
@@ -126,9 +121,6 @@ namespace EnderPearl.Frontend
 					HandshakeWebToken = BedrockCrypto.HandshakeJwt(keyPair, token)
 				};
 				Session.SendPacketImmediately(handshake);
-				// Encryption arms only after the handshake itself went out in plaintext.
-				Session.Session.mCryptoManager = new CryptoManager(clientEncryptionKey);
-				Session.Session.mOpenCrypto = true;
 				return PacketSignal.Handled;
 			}
 			catch (Exception exception)
@@ -141,7 +133,7 @@ namespace EnderPearl.Frontend
 
 		private PacketSignal HandleHandshake()
 		{
-			if (connection == null || clientEncryptionKey == null)
+			if (connection == null)
 			{
 				Session.Disconnect("Login handshake was not initialized");
 				return PacketSignal.Handled;
@@ -166,6 +158,10 @@ namespace EnderPearl.Frontend
 				// session it is trying to save.
 				if (connection.IsJoinSequenceActive())
 				{
+					// Never swallow this silently: a join sequence that is retrying looks identical to a
+					// hung join from the outside, and this line is the only trace of why nothing happened.
+					Logger.Info(
+						$"Backend dial failed while a join sequence is running (the next candidate will be tried): {exception.Message}");
 					return PacketSignal.Handled;
 				}
 				string message = exception is UnsupportedVersionPairException unsupported

@@ -4,11 +4,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Text;
-using Protocol.Codec.Connection.Encryption;
 using Protocol.Connection.Compression;
 using Protocol.Packets;
 using Protocol.Utility.IO;
-using RakNet;
 using EnderPearl.Core;
 
 namespace EnderPearl.Core
@@ -22,9 +20,7 @@ namespace EnderPearl.Core
 	public class PacketSession
 	{
 		public bool mOpenCompression { get; set; }
-		public bool mOpenCrypto { get; set; }
 		public CompressionAlgorithm mCompressionAlgorithm { get; set; } = CompressionAlgorithm.None;
-		public CryptoManager? mCryptoManager { get;set; }
 
 		/// <summary>
 		/// Pre-auth batch limiter hook (EnderPearl security.PreAuthBatchLimiter): returns the maximum
@@ -49,11 +45,6 @@ namespace EnderPearl.Core
 
 		public void HandleMinecraftGamePacket(McbeWrapper _wrapper)
 		{
-			if (mOpenCrypto)
-			{
-				_wrapper.payload = mCryptoManager?.Decrypt(_wrapper.payload.ToArray());
-			}
-
 			List<IPacket> outPackets;
 			if (mOpenCompression)
 			{
@@ -273,10 +264,6 @@ namespace EnderPearl.Core
 					throw new IOException("Unknown Compression mode");
 			}
 
-			if (mOpenCrypto)
-			{
-				wrapper.payload = mCryptoManager?.Encrypt(wrapper.payload.ToArray());
-			}
 			return wrapper;
 		}
 	}

@@ -74,6 +74,8 @@ namespace EnderPearl.Config
 
 		public string PublicAddress { get; init; } = "";
 
+		public NetherNetConfig NetherNet { get; init; } = new();
+
 		// No packaged config template exists, so a generated on-disk config is the only configuration
 		// documentation an operator ever sees there. It has to be a working default rather than nothing.
 		public static ProxyConfig LoadOrCreate(string path)
@@ -138,6 +140,7 @@ namespace EnderPearl.Config
 				CompressionThreshold = config.GetInt("compressionThreshold", 0),
 				BackendPackCacheDir = Path.GetFullPath(Path.Combine(configDir, "cache", "packs")),
 				PublicAddress = config.GetString("publicAddress", "").Trim(),
+				NetherNet = NetherNetConfig.From(config),
 				KeyForgePort = config.GetInt("keyForge.port", 19139)
 			};
 		}
@@ -183,6 +186,7 @@ namespace EnderPearl.Config
 					["cacheBackendPacks"] = true
 				},
 				["publicAddress"] = "",
+				["nethernet"] = NetherNetConfig.DefaultSection(),
 				["keyForge"] = new JsonObject
 				{
 					["port"] = 19139

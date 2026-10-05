@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
@@ -12,6 +12,7 @@ using global::Protocol.Packets;
 using EnderPearl.Core;
 using EnderPearl.Relay;
 using EnderPearl.Server;
+using EnderPearl.Transport;
 
 namespace EnderPearl.Backend
 {
@@ -315,10 +316,13 @@ namespace EnderPearl.Backend
 		{
 			Logger.Info(
 				$"Dialing backend {backendConfig.Name} at {backendConfig.Address} (join={disconnectClientOnClose}) for {connection.ClientLogin.AuthData.DisplayName}.");
+			string oidcToken = "";
 			try
 			{
 				BackendProtocol backendProtocol = ResolveBackendProtocol(backendConfig);
-				connection.SetBackendLogin(BuildBackendLogin(connection, backendConfig, backendProtocol));
+				(LoginPacket backendLogin, string token) = BuildBackendLogin(connection, backendConfig, backendProtocol);
+				connection.SetBackendLogin(backendLogin);
+				oidcToken = token;
 				if (ProxyConnection.IsPacketTracingConfigured())
 				{
 					int clientProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
@@ -335,7 +339,7 @@ namespace EnderPearl.Backend
 			BackendSession? createdSession = null;
 			try
 			{
-				RakNet.Conn conn = Dial(backendConfig.Address);
+				NetherNetConnection conn = Dial(backendConfig.Address, BuildNetherNetIdentity(connection, oidcToken));
 				createdSession = new BackendSession(conn);
 				createdSession.Connection = connection;
 				createdSession.SetDisconnectClientOnClose(disconnectClientOnClose);
@@ -363,6 +367,7 @@ namespace EnderPearl.Backend
 				});
 				// Handler first, read loop second (Java's initSession ordering).
 				createdSession.StartReading();
+				Logger.Info($"Backend {backendConfig.Name}: NetherNet connection established; requesting network settings.");
 			}
 			catch (Exception exception)
 			{
@@ -380,17 +385,30 @@ namespace EnderPearl.Backend
 			});
 		}
 
-		private RakNet.Conn Dial(IPEndPoint address)
+		private NetherNetConnection Dial(IPEndPoint address, NetherNet.Identity identity)
 		{
-			var dialer = new RakNet.Dialer
+			string host = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+				? "[" + address.Address + "]"
+				: address.Address.ToString();
+			string url = $"http://{host}:{address.Port}";
+			var client = new NetherNet.Endpoint.Client(new NetherNet.Endpoint.ClientConfig
 			{
-				ErrorLog = message => Logger.Info($"[Proxy To Server] {message}"),
-				MaxMTU = 1492
+				Logger = message => Logger.Info($"[Proxy To Server] {message}"),
+			});
+			var dialer = new NetherNet.Dialer
+			{
+				DisableTrickleICE = true,
+				Log = message => Logger.Info($"[Proxy To Server] {message}"),
+				Credentials = _ => Task.FromResult<NetherNet.Credentials?>(ProxyServer.Config.NetherNet.ToCredentials()),
+				Identity = identity,
 			};
 			// Java set RAK_CONNECT_TIMEOUT from switch.connectTimeoutMillis (default 5000ms); without
-			// it a dead backend costs the RakNet library's full 10s session timeout per attempt, which
-			// halves the number of tries that fit inside the /server retry window.
-			return dialer.DialTimeoutInternal(address.ToString(), TimeSpan.FromMilliseconds(ProxyServer.Policy.BackendSwitch.ConnectTimeoutMillis));
+			// it a dead backend costs the transport's full session timeout per attempt, which halves
+			// the number of tries that fit inside the /server retry window.
+			using var timeout = new CancellationTokenSource(
+				TimeSpan.FromMilliseconds(ProxyServer.Policy.BackendSwitch.ConnectTimeoutMillis));
+			NetherNet.Conn conn = dialer.DialContextAsync(timeout.Token, url, client).GetAwaiter().GetResult();
+			return new NetherNetConnection(conn);
 		}
 
 		private sealed record BackendProtocol(int ProtocolVersion, string? MinecraftVersion);
@@ -460,7 +478,7 @@ namespace EnderPearl.Backend
 				$"BACKEND IDENTITY for {backendConfig.Name} (protocol {backendProtocolVersion}): name={authData.DisplayName} xuid={authData.Xuid} identity={authData.Identity}");
 		}
 
-		private LoginPacket BuildBackendLogin(
+		private (LoginPacket Login, string OidcToken) BuildBackendLogin(
 			ProxyConnection connection,
 			BackendConfig backendConfig,
 			BackendProtocol backendProtocol
@@ -476,9 +494,25 @@ namespace EnderPearl.Backend
 				connection.ClientLogin,
 				backendProtocol.MinecraftVersion,
 				serverAddress,
-				ProxyServer.MimicIdentity
+				ProxyServer.MimicIdentity,
+				out string oidcToken
 			);
-			return backendLogin;
+			return (backendLogin, oidcToken);
+		}
+
+		/// <summary>
+		/// The NetherNet identity presented to the backend. A genuine client always asserts one, and a
+		/// backend in online mode answers an offer without one with ErrorCodeIdentityNotAllowed (37),
+		/// so the offer must carry the same token the Login packet does.
+		/// </summary>
+		private static NetherNet.Identity BuildNetherNetIdentity(ProxyConnection connection, string oidcToken)
+		{
+			return new NetherNet.Identity
+			{
+				PrivateKey = connection.KeyPair.Signer,
+				Token = oidcToken,
+				Domain = "https://authorization.franchise.minecraft-services.net"
+			};
 		}
 	}
 }

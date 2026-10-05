@@ -12,17 +12,18 @@ using EnderPearl.Protocol;
 using EnderPearl.Permission;
 using EnderPearl.Security;
 using EnderPearl.Player;
-using RakNet;
+using NetherNet.Endpoint;
+using EnderPearl.Transport;
 using EnderPearl.Relay;
 using EnderPearl.Server;
 
 namespace EnderPearl.Frontend
 {
 	/// <summary>
-	/// EnderPearl's front door: binds the RakNet listeners, advertises the server list entry, throttles
+	/// EnderPearl's front door: binds the NetherNet endpoint, advertises the server-list status, throttles
 	/// connections, and hands each accepted client to <see cref="ClientLoginHandler"/>.
 	///
-	/// <p>This is the C# port of the Java original onto the plain RakNet listener/accept model: there
+	/// <p>This is the C# port of the Java original onto the plain NetherNet listener/accept model: there
 	/// is no Netty pipeline here, so per-connection work (throttle, pre-auth batch limit, handler
 	/// wiring) happens at accept time instead of in channel initializers.</p>
 	///
@@ -36,14 +37,16 @@ namespace EnderPearl.Frontend
 		private readonly HashSet<ListenerSession> sessions = new();
 		private readonly ManualResetEvent stopped = new(false);
 		private readonly ProxyCommandManager commandManager = new();
-		private readonly long serverId = Random.Shared.NextInt64() & 0x7FFFFFFFFFFFFFFF;
 		private readonly ConnectionThrottle connectionThrottle;
+		private readonly string configDirectory;
 		private ProxyConsole? console;
-		private RakNet.Listener? listener;
+		private NetherNet.Listener? listener;
+		private Handler? handler;
 		private volatile bool shuttingDown;
 
-		public BedrockProxyListener()
+		public BedrockProxyListener(string configDirectory)
 		{
+			this.configDirectory = configDirectory ?? throw new ArgumentNullException(nameof(configDirectory));
 			// Reading the security config here is also the check that ProxyServer.Initialize ran first: a
 			// listener built before the proxy-wide state exists fails loudly instead of accepting peers.
 			connectionThrottle = new ConnectionThrottle(ProxyServer.Policy.Security);
@@ -75,7 +78,7 @@ namespace EnderPearl.Frontend
 			StartAcceptLoop(listener!, backendConnector, onlineLoginForge, security);
 
 			Logger.Info(
-				$"Security: connectionCookie={(security.SendConnectionCookie ? "on" : "OFF")} maxConnectionsPerAddress={security.MaxConnectionsPerAddress} "
+				$"Security: maxConnectionsPerAddress={security.MaxConnectionsPerAddress} "
 				+ $"maxConnectionAttempts={security.MaxConnectionAttempts}/{security.ConnectionAttemptWindowMillis}ms requireXuid={security.RequireXuid} commandCooldownMillis={security.CommandCooldownMillis}."
 				+ " Packet rate limiting is not enforced.");
 			Logger.Info(
@@ -122,25 +125,35 @@ namespace EnderPearl.Frontend
 			console.Start();
 		}
 
-		private RakNet.Listener BindListener(
+		private NetherNet.Listener BindListener(
 			IPEndPoint address,
 			SecurityConfig security
 		)
 		{
-			var listenConfig = new ListenConfig
+			handler = new Handler(new HandlerConfig
 			{
-				ErrorLog = message => Logger.Info($"[RakNet] {message}"),
-				// With the cookie on, the handshake proves the client can receive at its claimed
-				// address, which makes a spoofed source IP useless for opening sessions.
-				DisableCookies = !security.SendConnectionCookie,
-			};
-			RakNet.Listener bound = listenConfig.Listen(address.ToString());
-			bound.SetPongDataFunc(_ => Advertisement().ToByteArray());
+				Logger = message => Logger.Info($"[NetherNet] {message}"),
+				Credentials = _ => Task.FromResult<NetherNet.Credentials?>(ProxyServer.Config.NetherNet.ToCredentials()),
+			});
+			Logger.Info($"NetherNet server identity: {NetherNetServerIdentity.PathFor(configDirectory)}");
+			Logger.Info($"NetherNet ICE servers: {DescribeIceServers(ProxyServer.Config.NetherNet)}");
+			NetherNet.Listener bound = NetherNet.ListenConfigExtensions.ListenAsync(new NetherNet.ListenConfig
+			{
+				// Bedrock clients present the identity assertion they received from the
+				// authorization service; offline clients that omit it are still accepted and
+				// authenticated by the proxy's own Login handling.
+				AllowAnonymous = true,
+				DisableTrickleICE = true,
+				IssueServerIdentity = NetherNetServerIdentity.Issuer(configDirectory),
+				Log = message => Logger.Info($"[NetherNet] {message}"),
+			}, handler).GetAwaiter().GetResult();
+			handler.Status(Advertisement());
+			handler.Start($"{address.Address}:{address.Port}");
 			return bound;
 		}
 
 		private void StartAcceptLoop(
-			RakNet.Listener rakListener,
+			NetherNet.Listener netherListener,
 			BackendConnector backendConnector,
 			OnlineLoginForge onlineLoginForge,
 			SecurityConfig security
@@ -150,10 +163,10 @@ namespace EnderPearl.Frontend
 			{
 				while (!shuttingDown)
 				{
-					RakNet.Conn conn;
+					NetherNetConnection conn;
 					try
 					{
-						conn = rakListener.Accept();
+						conn = new NetherNetConnection(netherListener.AcceptAsync().GetAwaiter().GetResult());
 					}
 					catch (Exception exception) when (shuttingDown)
 					{
@@ -177,14 +190,14 @@ namespace EnderPearl.Frontend
 				}
 			})
 			{
-				Name = "enderpearl-accept-" + rakListener.LocalEndPoint,
+				Name = "enderpearl-accept-" + netherListener.Addr(),
 				IsBackground = true
 			};
 			thread.Start();
 		}
 
 		private void AcceptConnection(
-			RakNet.Conn conn,
+			NetherNetConnection conn,
 			BackendConnector backendConnector,
 			OnlineLoginForge onlineLoginForge,
 			SecurityConfig security
@@ -249,6 +262,7 @@ namespace EnderPearl.Frontend
 			{
 				console?.Stop();
 				listener?.Close();
+				handler?.Close();
 				lock (sessions)
 				{
 					foreach (ListenerSession session in sessions)
@@ -298,32 +312,49 @@ namespace EnderPearl.Frontend
 
 		private void UpdateAdvertisement()
 		{
-			RakNet.Listener? current = listener;
-			if (current != null)
-			{
-				current.SetPongDataFunc(_ => Advertisement().ToByteArray());
-			}
+			handler?.Status(Advertisement());
 		}
 
-		private PongBuilder Advertisement()
+		private NetherNet.Endpoint.Status Advertisement()
 		{
-			int port = ProxyServer.Config.ListenAddress.Port;
 			int advertisedProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
-			return new PongBuilder()
-				.Field("MCPE")
-				.Field(ProxyServer.Config.Motd)
-				.Field(advertisedProtocol.ToString())
-				.Field(advertisedProtocol.ToString())
-				.Field(ProxyServer.ConnectedPlayers.Size().ToString())
-				.Field(ProxyServer.Config.MaxPlayers.ToString())
-				.Field(serverId.ToString())
-				.Field(ProxyServer.Config.SubMotd)
-				.Field(ProxyServer.Config.GameType)
-				.Field("1")
-				.Field(port.ToString())
-				.Field(port.ToString())
-				.Field("0")
-				.Field("");
+			return new NetherNet.Endpoint.Status
+			{
+				ServerName = ProxyServer.Config.Motd,
+				Protocol = advertisedProtocol,
+				Version = advertisedProtocol.ToString(),
+				LevelName = ProxyServer.Config.SubMotd,
+				PlayerCount = ProxyServer.ConnectedPlayers.Size(),
+				MaxPlayerCount = ProxyServer.Config.MaxPlayers,
+				GameType = GameTypeFromName(ProxyServer.Config.GameType),
+			};
+		}
+
+		private static int GameTypeFromName(string value)
+		{
+			return value.Trim().ToLowerInvariant() switch
+			{
+				"creative" => NetherNet.Endpoint.GameTypes.Creative,
+				"adventure" => NetherNet.Endpoint.GameTypes.Adventure,
+				_ => NetherNet.Endpoint.GameTypes.Survival,
+			};
+		}
+
+		private static string DescribeIceServers(NetherNetConfig netherNet)
+		{
+			var urls = new List<string>();
+			foreach (string url in netherNet.StunServers)
+			{
+				urls.Add(url);
+			}
+			foreach (TurnServerConfig turn in netherNet.TurnServers)
+			{
+				foreach (string url in turn.Urls)
+				{
+					urls.Add(url);
+				}
+			}
+			return urls.Count == 0 ? "none" : string.Join(", ", urls);
 		}
 
 		private List<string> BackendsNamesInOrder()
@@ -341,28 +372,6 @@ namespace EnderPearl.Frontend
 			var sorted = new List<string>(values);
 			sorted.Sort(StringComparer.Ordinal);
 			return sorted;
-		}
-
-		/// <summary>Builds the semicolon-separated RakNet pong advertisement payload.</summary>
-		internal sealed class PongBuilder
-		{
-			private readonly StringBuilder fields = new();
-
-			public PongBuilder Field(string value)
-			{
-				if (fields.Length > 0)
-				{
-					fields.Append(';');
-				}
-				fields.Append(value);
-				return this;
-			}
-
-			public byte[] ToByteArray()
-			{
-				fields.Append(';');
-				return Encoding.UTF8.GetBytes(fields.ToString());
-			}
 		}
 	}
 }

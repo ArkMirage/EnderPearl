@@ -1,14 +1,14 @@
-﻿using System;
+using System;
 using System.Threading;
 using EnderPearl.Core;
 using EnderPearl.Player;
 using Protocol.Packets;
-using RakNet;
+using EnderPearl.Transport;
 
 namespace EnderPearl.Backend
 {
 	/// <summary>
-	/// The backend-facing leg of one proxied player: the RakNet connection the proxy dials to a BDS
+	/// The backend-facing leg of one proxied player: the NetherNet connection the proxy dials to a BDS
 	/// server. Java subclassed BedrockClientSession; here the transport lives in
 	/// <see cref="PacketConnection"/> and this class adds the proxy-specific state and close semantics.
 	/// </summary>
@@ -17,7 +17,7 @@ namespace EnderPearl.Backend
 		private volatile bool disconnectClientOnClose = true;
 		private volatile bool dropSubChunkRequests;
 
-		public BackendSession(Conn conn)
+		public BackendSession(NetherNetConnection conn)
 		{
 			Attach(conn);
 		}
@@ -43,7 +43,7 @@ namespace EnderPearl.Backend
 		public PacketSignal Handle(IPacket packet) => PacketSignal.Unhandled;
 
 		/// <summary>
-		/// Closes the backend leg without any Bedrock-level goodbye; the RakNet layer sends its own
+		/// Closes the backend leg without any Bedrock-level goodbye; the NetherNet layer sends its own
 		/// disconnect notification. Java's client-session disconnect does exactly this.
 		/// </summary>
 		public void Disconnect(string reason)
@@ -53,7 +53,7 @@ namespace EnderPearl.Backend
 				return;
 			}
 			Logger.Info(
-				$"Closing backend leg to {RemoteEndPoint} ({reason}); sending RakNet disconnect notification.");
+				$"Closing backend leg to {RemoteEndPoint} ({reason}); closing the NetherNet connection.");
 			CloseTransport();
 		}
 

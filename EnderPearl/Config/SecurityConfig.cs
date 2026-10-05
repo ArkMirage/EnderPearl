@@ -13,8 +13,6 @@ namespace EnderPearl.Config
 	/// </summary>
 	public sealed class SecurityConfig
 	{
-		public bool SendConnectionCookie { get; init; }
-
 		private int maxConnectionsPerAddress;
 
 		public int MaxConnectionsPerAddress { get => maxConnectionsPerAddress; init => maxConnectionsPerAddress = Checked(value, 1, "maxConnectionsPerAddress must be positive"); }
@@ -46,7 +44,6 @@ namespace EnderPearl.Config
 		{
 			return new SecurityConfig
 			{
-				SendConnectionCookie = true,
 				MaxConnectionsPerAddress = 64,
 				MaxConnectionAttempts = 8,
 				ConnectionAttemptWindowMillis = 10_000,
@@ -60,7 +57,6 @@ namespace EnderPearl.Config
 			SecurityConfig defaults = Defaults();
 			return new SecurityConfig
 			{
-				SendConnectionCookie = config.GetBool("security.sendConnectionCookie", defaults.SendConnectionCookie),
 				MaxConnectionsPerAddress = config.GetInt("security.maxConnectionsPerAddress", defaults.MaxConnectionsPerAddress),
 				MaxConnectionAttempts = config.GetInt("security.maxConnectionAttempts", defaults.MaxConnectionAttempts),
 				ConnectionAttemptWindowMillis = config.GetInt("security.connectionAttemptWindowMillis",
@@ -76,7 +72,6 @@ namespace EnderPearl.Config
 			SecurityConfig defaults = Defaults();
 			return new JsonObject
 			{
-				["sendConnectionCookie"] = defaults.SendConnectionCookie,
 				["maxConnectionsPerAddress"] = defaults.MaxConnectionsPerAddress,
 				["maxConnectionAttempts"] = defaults.MaxConnectionAttempts,
 				["connectionAttemptWindowMillis"] = defaults.ConnectionAttemptWindowMillis,

@@ -36,7 +36,7 @@ namespace EnderPearl.Relay
 		/// into a redirect.
 		///
 		/// <para>A graceful backend shutdown sends this well before the socket closes, so without the
-		/// interception the client is gone long before OnDisconnected - and the RakNet timeout that would
+		/// interception the client is gone long before OnDisconnected - and the transport timeout that would
 		/// eventually fire is ten seconds too late to matter. Forwarding resumes unchanged when Failover
 		/// declines the disconnect, so a player with no fallback still sees the backend's own message.</para>
 		/// </summary>

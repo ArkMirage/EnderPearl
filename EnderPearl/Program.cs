@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using EnderPearl.Config;
 using EnderPearl.Auth;
@@ -54,7 +54,7 @@ namespace EnderPearl
 				);
 				KeyServiceHost.Start(config.KeyForgePort, mimic);
 
-				var listener = new BedrockProxyListener();
+				var listener = new BedrockProxyListener(configDirectory);
 
 				Console.CancelKeyPress += (_, eventArgs) =>
 				{

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using EnderPearl.Core;
@@ -273,7 +273,7 @@ namespace EnderPearl.Relay
 		/// <item><c>samesize</c> still dies at ~6s but <c>minimal</c> survives → not the flags. It is
 		///       the positional payload's content, or the byte volume the optionals carry.</item>
 		/// <item>both still die at ~6s → content is exonerated at the packet layer and the cause is
-		///       packet <i>count</i>. The search moves below the packet layer, to compression and RakNet
+		///       packet <i>count</i>. The search moves below the packet layer, to compression and the transport
 		///       fragmentation.</item>
 		/// </list>
 		///

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Net;
 using EnderPearl.Config;
@@ -9,8 +9,8 @@ namespace EnderPearl.Security
 	/// <summary>
 	/// Caps how many sessions one address may hold at once, and how fast it may open new ones.
 	///
-	/// <para>RakNet's own limits are per-datagram and global: the connection pool is a single pool
-	/// everyone draws from, so without this one host can hold every slot and nobody else gets in. Each
+	/// <para>The transport imposes no per-address limit of its own: without this one host can hold
+	/// every session and nobody else gets in. Each
 	/// accepted session also costs the proxy a full backend dial-out, which makes the connection
 	/// <em>rate</em> matter as much as the count - an unthrottled attacker turns one UDP stream into a
 	/// flood of handshakes against every backend.</para>

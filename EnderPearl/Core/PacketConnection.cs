@@ -4,13 +4,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using Protocol.Packets;
-using RakNet;
+using EnderPearl.Transport;
 using EnderPearl.Core;
 
 namespace EnderPearl.Core
 {
 	/// <summary>
-	/// One Bedrock protocol leg over a RakNet connection: the framing, compression and encryption
+	/// One Bedrock protocol leg over a NetherNet connection: the framing, compression and encryption
 	/// plumbing (EnderPearl.Core.PacketSession), a read loop dispatching decoded packets to the current
 	/// handler, and send/close. This plays the role of the Java original's BedrockPeer + session pair.
 	///
@@ -21,7 +21,7 @@ namespace EnderPearl.Core
 	public abstract class PacketConnection : IDisposable
 	{
 		private readonly object sendMutex = new();
-		private volatile Conn? conn;
+		private volatile NetherNetConnection? conn;
 		private volatile PacketHandler? handler;
 		private volatile bool closed;
 		private Thread? readThread;
@@ -59,12 +59,12 @@ namespace EnderPearl.Core
 		}
 
 		/// <summary>
-		/// Attaches a live RakNet connection without reading from it yet. Java installed each session's
+		/// Attaches a live NetherNet connection without reading from it yet. Java installed each session's
 		/// packet handler inside the Netty channel init, strictly before any inbound packet could be
 		/// dispatched; splitting attach from StartReading reproduces that ordering - install the
 		/// handler first, then call <see cref="StartReading"/>.
 		/// </summary>
-		public void Attach(Conn connection)
+		public void Attach(NetherNetConnection connection)
 		{
 			ObjectDisposedException.ThrowIf(closed, this);
 			conn = connection;
@@ -82,7 +82,7 @@ namespace EnderPearl.Core
 			{
 				throw new InvalidOperationException("StartReading called before a packet handler was installed");
 			}
-			Conn connection = conn!;
+			NetherNetConnection connection = conn!;
 			readThread = new Thread(ReadLoop)
 			{
 				Name = GetType().Name + "-" + connection.RemoteEndPoint,
@@ -120,7 +120,7 @@ namespace EnderPearl.Core
 			}
 			finally
 			{
-				// Java surfaced the RakNet disconnect reason (TIMED_OUT, CLOSED_BY_REMOTE_PEER, ...) to
+				// Java surfaced the transport disconnect reason (TIMED_OUT, CLOSED_BY_REMOTE_PEER, ...) to
 				// the handler's onDisconnect; derive the closest equivalent from why this loop exited so
 				// failover logs and kick messages carry a real cause instead of "connection closed".
 				string reason = disconnectReason ?? DescribeExit(exitCause);
@@ -157,8 +157,8 @@ namespace EnderPearl.Core
 				case OperationCanceledException:
 				case ObjectDisposedException:
 					// Both arise from Conn.CloseImmediately(): a local Disconnect(), or the peer's
-					// RakNet disconnect notification completing the packet channel. One phrase for
-					// either direction of a clean RakNet close.
+					// transport disconnect notification completing the packet channel. One phrase for
+					// either direction of a clean close.
 					return "disconnect notification";
 				default:
 					return closed ? "closed locally" : exitCause.GetType().Name;
@@ -167,23 +167,18 @@ namespace EnderPearl.Core
 
 		private void HandleDatagram(byte[] data)
 		{
-			switch (data[0])
+			try
 			{
-				case 0xfe:
-					try
-					{
-						var wrapper = new McbeWrapper();
-						wrapper.Decode(data);
-						Session.HandleMinecraftGamePacket(wrapper);
-					}
-					catch (Exception exception)
-					{
-						string dump = BitConverter.ToString(data, 0, Math.Min(data.Length, 48));
-						Logger.Error(
-							$"{GetType().Name} failed to decode an inbound batch from {conn?.RemoteEndPoint} ({data.Length} bytes): {exception.Message} | {dump}");
-						OnBatchDecodeFailure(exception);
-					}
-					break;
+				var wrapper = new McbeWrapper();
+				wrapper.Decode(data);
+				Session.HandleMinecraftGamePacket(wrapper);
+			}
+			catch (Exception exception)
+			{
+				string dump = BitConverter.ToString(data, 0, Math.Min(data.Length, 48));
+				Logger.Error(
+					$"{GetType().Name} failed to decode an inbound batch from {conn?.RemoteEndPoint} ({data.Length} bytes): {exception.Message} | {dump}");
+				OnBatchDecodeFailure(exception);
 			}
 		}
 
@@ -231,7 +226,7 @@ namespace EnderPearl.Core
 			{
 				return;
 			}
-			Conn? connection = conn;
+			NetherNetConnection? connection = conn;
 			if (connection == null)
 			{
 				return;
@@ -307,6 +302,6 @@ namespace EnderPearl.Core
 			}
 		}
 
-		protected Conn? Connection => conn;
+		protected NetherNetConnection? Connection => conn;
 	}
 }

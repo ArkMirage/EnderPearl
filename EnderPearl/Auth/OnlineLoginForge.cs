@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
@@ -64,7 +64,25 @@ namespace EnderPearl.Auth
 			MojangMimicIdentity? mimic
 		)
 		{
-			string oidcToken = mimic != null
+			return Forge(keyPair, clientLogin, minecraftVersion, serverAddress, mimic, out _);
+		}
+
+		/// <summary>
+		/// Same as the five-argument overload, but also hands back the OIDC multiplayer token itself.
+		/// The NetherNet identity assertion presented when dialing the backend has to carry that exact
+		/// token: a Backend in online mode rejects an offer whose identity it cannot verify, and a
+		/// self-signed one is not verifiable.
+		/// </summary>
+		public LoginPacket Forge(
+			ECDsaHolder keyPair,
+			ClientLogin clientLogin,
+			string? minecraftVersion,
+			string? serverAddress,
+			MojangMimicIdentity? mimic,
+			out string oidcToken
+		)
+		{
+			oidcToken = mimic != null
 				? ForgeMimicToken(mimic, keyPair, clientLogin.AuthData, clientLogin.SkinData)
 				: ForgeOidcToken(keyPair, clientLogin.AuthData, clientLogin.SkinData);
 			var authType = mimic != null

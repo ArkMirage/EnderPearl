@@ -1,11 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using EnderPearl.Auth;
 using EnderPearl.Core;
 using global::Protocol;
-using global::Protocol.Codec.Connection.Encryption;
 using global::Protocol.Packets;
 using EnderPearl.Player;
 using EnderPearl.Relay;
@@ -64,6 +63,8 @@ namespace EnderPearl.Backend
 				LogBackendLoginCapabilities(Connection.BackendLogin);
 			}
 			Backend.SendPacketImmediately(Connection.BackendLogin);
+			Logger.Info(
+				$"Backend {BackendName}: network settings received (threshold={packet.CompressionThreshold}); sent the proxied login.");
 			return PacketSignal.Handled;
 		}
 
@@ -86,7 +87,7 @@ namespace EnderPearl.Backend
 			if (IsLoginFailure(packet.Status))
 			{
 				// The backend has already said no; failing here turns a version mismatch into an
-				// immediate move to the next candidate instead of waiting out RakNet's timeout.
+				// immediate move to the next candidate instead of waiting out the transport timeout.
 				Logger.Info(
 					$"Backend {BackendName} rejected the proxy login ({packet.Status}); treating as an immediate failure instead of waiting for the session to time out. If that backend runs a newer Minecraft version, set backend.{BackendName}.protocol.");
 				warnedPreHandshakeDisconnect = true;
@@ -131,18 +132,6 @@ namespace EnderPearl.Backend
 		{
 			try
 			{
-				string token = packet.HandshakeWebToken;
-				IDictionary<string, System.Text.Json.JsonElement> headers = JwtHelper.DecodeHeaders(token);
-				string x5u = headers["x5u"].GetString()!;
-				byte[] x5uBytes = JwtHelper.Base64UrlDecode(x5u);
-
-				byte[] serverKeyBytes = x5uBytes;
-				byte[] salt = JwtHelper.Base64UrlDecode(
-					System.Text.Json.JsonDocument.Parse(JwtHelper.DecodePayload(token)).RootElement.GetProperty("salt").GetString()!);
-				byte[] key = BedrockCrypto.SecretKey(Connection.KeyPair, serverKeyBytes, salt);
-
-				Backend.Session.mCryptoManager = new CryptoManager(key);
-				Backend.Session.mOpenCrypto = true;
 				Backend.SendPacketImmediately(new ClientToServerHandshakePacket());
 				Backend.SetPacketHandler(new BackendRelayPacketHandler
 				{
