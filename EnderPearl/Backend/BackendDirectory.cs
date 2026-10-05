@@ -2,133 +2,131 @@
 using System.Collections.Generic;
 using EnderPearl.Config;
 
-namespace EnderPearl.Backend
+namespace EnderPearl.Backend;
+/// <summary>
+/// The configured set of backends, keyed by normalized name.
+/// </summary>
+public sealed class BackendDirectory
 {
-	/// <summary>
-	/// The configured set of backends, keyed by normalized name.
-	/// </summary>
-	public sealed class BackendDirectory
+	private readonly LinkedHashMap<string, BackendConfig> backends;
+	private readonly string defaultBackendName;
+	private readonly string hubBackendName;
+
+	public BackendDirectory(LinkedHashMap<string, BackendConfig> backends, string defaultBackendName, string hubBackendName)
 	{
-		private readonly LinkedHashMap<string, BackendConfig> backends;
-		private readonly string defaultBackendName;
-		private readonly string hubBackendName;
-
-		public BackendDirectory(LinkedHashMap<string, BackendConfig> backends, string defaultBackendName, string hubBackendName)
+		if (backends == null || backends.Count == 0)
 		{
-			if (backends == null || backends.Count == 0)
-			{
-				throw new ArgumentException("backends cannot be empty");
-			}
-			this.backends = Normalized(backends);
-			this.defaultBackendName = Normalize(defaultBackendName);
-			this.hubBackendName = Normalize(hubBackendName);
-			if (!this.backends.ContainsKey(this.defaultBackendName))
-			{
-				throw new ArgumentException("default backend is not configured: " + defaultBackendName);
-			}
-			if (!this.backends.ContainsKey(this.hubBackendName))
-			{
-				throw new ArgumentException("hub backend is not configured: " + hubBackendName);
-			}
+			throw new ArgumentException("backends cannot be empty");
 		}
-
-		public BackendConfig DefaultBackend() => backends[defaultBackendName];
-
-		public BackendConfig HubBackend() => backends[hubBackendName];
-
-		public BackendConfig? Find(string? name)
+		this.backends = Normalized(backends);
+		this.defaultBackendName = Normalize(defaultBackendName);
+		this.hubBackendName = Normalize(hubBackendName);
+		if (!this.backends.ContainsKey(this.defaultBackendName))
 		{
-			return backends.TryGetValue(Normalize(name), out BackendConfig? backend) ? backend : null;
+			throw new ArgumentException("default backend is not configured: " + defaultBackendName);
 		}
-
-		/// <summary>
-		/// Finds the configured backend addressed by a Bedrock <c>TransferPacket</c>. Only endpoints
-		/// already present in the proxy configuration qualify; resolving an arbitrary host supplied by a
-		/// backend here would block the packet thread, so other aliases fall through to the normal
-		/// client-side transfer.
-		/// </summary>
-		public BackendConfig? FindByAddress(string? host, int port)
+		if (!this.backends.ContainsKey(this.hubBackendName))
 		{
-			if (string.IsNullOrWhiteSpace(host) || port < 1 || port > 65_535)
-			{
-				return null;
-			}
-			string normalizedHost = NormalizeHost(host);
-			foreach (BackendConfig backend in backends.Values)
-			{
-				if (backend.Address.Port == port && MatchesHost(backend, normalizedHost))
-				{
-					return backend;
-				}
-			}
+			throw new ArgumentException("hub backend is not configured: " + hubBackendName);
+		}
+	}
+
+	public BackendConfig DefaultBackend() => backends[defaultBackendName];
+
+	public BackendConfig HubBackend() => backends[hubBackendName];
+
+	public BackendConfig? Find(string? name)
+	{
+		return backends.TryGetValue(Normalize(name), out BackendConfig? backend) ? backend : null;
+	}
+
+	/// <summary>
+	/// Finds the configured backend addressed by a Bedrock <c>TransferPacket</c>. Only endpoints
+	/// already present in the proxy configuration qualify; resolving an arbitrary host supplied by a
+	/// backend here would block the packet thread, so other aliases fall through to the normal
+	/// client-side transfer.
+	/// </summary>
+	public BackendConfig? FindByAddress(string? host, int port)
+	{
+		if (string.IsNullOrWhiteSpace(host) || port < 1 || port > 65_535)
+		{
 			return null;
 		}
-
-		public IReadOnlyList<BackendConfig> Backends()
+		string normalizedHost = NormalizeHost(host);
+		foreach (BackendConfig backend in backends.Values)
 		{
-			var list = new List<BackendConfig>();
-			foreach (BackendConfig backend in backends.Values)
+			if (backend.Address.Port == port && MatchesHost(backend, normalizedHost))
 			{
-				list.Add(backend);
+				return backend;
 			}
-			return list;
 		}
+		return null;
+	}
 
-		public List<string> BackendNames()
+	public IReadOnlyList<BackendConfig> Backends()
+	{
+		var list = new List<BackendConfig>();
+		foreach (BackendConfig backend in backends.Values)
 		{
-			var names = new List<string>();
-			foreach (BackendConfig backend in backends.Values)
-			{
-				names.Add(backend.Name);
-			}
-			return names;
+			list.Add(backend);
 		}
+		return list;
+	}
 
-		private static LinkedHashMap<string, BackendConfig> Normalized(LinkedHashMap<string, BackendConfig> input)
+	public List<string> BackendNames()
+	{
+		var names = new List<string>();
+		foreach (BackendConfig backend in backends.Values)
 		{
-			var result = new LinkedHashMap<string, BackendConfig>();
-			foreach (BackendConfig backend in input.Values)
-			{
-				result.Add(Normalize(backend.Name), backend);
-			}
-			return result;
+			names.Add(backend.Name);
 		}
+		return names;
+	}
 
-		private static string Normalize(string? name)
+	private static LinkedHashMap<string, BackendConfig> Normalized(LinkedHashMap<string, BackendConfig> input)
+	{
+		var result = new LinkedHashMap<string, BackendConfig>();
+		foreach (BackendConfig backend in input.Values)
 		{
-			if (string.IsNullOrWhiteSpace(name))
-			{
-				throw new ArgumentException("backend name cannot be blank");
-			}
-			return name.Trim().ToLowerInvariant();
+			result.Add(Normalize(backend.Name), backend);
 		}
+		return result;
+	}
 
-		private static bool MatchesHost(BackendConfig backend, string transferHost)
+	private static string Normalize(string? name)
+	{
+		if (string.IsNullOrWhiteSpace(name))
 		{
-			// Java compared the host string the backend was configured with first (InetSocketAddress
-			// keeps it), then fell back to the already-resolved numeric address. No DNS here either
-			// way: this runs on a packet-reading thread, and resolving an arbitrary transfer host was
-			// exactly what the Java original refused to do. Hostname aliases are handled by Find(name).
-			if (NormalizeHost(backend.HostString).Equals(transferHost, StringComparison.Ordinal))
-			{
-				return true;
-			}
-			return NormalizeHost(backend.Address.Address.ToString())
-				.Equals(transferHost, StringComparison.Ordinal);
+			throw new ArgumentException("backend name cannot be blank");
 		}
+		return name.Trim().ToLowerInvariant();
+	}
 
-		private static string NormalizeHost(string host)
+	private static bool MatchesHost(BackendConfig backend, string transferHost)
+	{
+		// Java compared the host string the backend was configured with first (InetSocketAddress
+		// keeps it), then fell back to the already-resolved numeric address. No DNS here either
+		// way: this runs on a packet-reading thread, and resolving an arbitrary transfer host was
+		// exactly what the Java original refused to do. Hostname aliases are handled by Find(name).
+		if (NormalizeHost(backend.HostString).Equals(transferHost, StringComparison.Ordinal))
 		{
-			string normalized = host.Trim();
-			if (normalized.Length > 1 && normalized[0] == '[' && normalized[^1] == ']')
-			{
-				normalized = normalized[1..^1];
-			}
-			while (normalized.EndsWith(".") && normalized.Length > 1)
-			{
-				normalized = normalized[..^1];
-			}
-			return normalized.ToLowerInvariant();
+			return true;
 		}
+		return NormalizeHost(backend.Address.Address.ToString())
+			.Equals(transferHost, StringComparison.Ordinal);
+	}
+
+	private static string NormalizeHost(string host)
+	{
+		string normalized = host.Trim();
+		if (normalized.Length > 1 && normalized[0] == '[' && normalized[^1] == ']')
+		{
+			normalized = normalized[1..^1];
+		}
+		while (normalized.EndsWith(".") && normalized.Length > 1)
+		{
+			normalized = normalized[..^1];
+		}
+		return normalized.ToLowerInvariant();
 	}
 }

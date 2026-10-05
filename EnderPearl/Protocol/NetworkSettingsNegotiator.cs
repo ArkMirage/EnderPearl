@@ -1,71 +1,69 @@
 using global::Protocol;
 using global::Protocol.Packets;
-using EnderPearl.Protocol;
 
-namespace EnderPearl.Protocol
+namespace EnderPearl.Protocol;
+
+/// <summary>The outcome of the pre-login network-settings handshake.</summary>
+public abstract record NetworkSettingsNegotiationResult
 {
-	/// <summary>The outcome of the pre-login network-settings handshake.</summary>
-	public abstract record NetworkSettingsNegotiationResult
-	{
-		public sealed record Accepted(NetworkSettingsPacket NetworkSettings)
-			: NetworkSettingsNegotiationResult;
+	public sealed record Accepted(NetworkSettingsPacket NetworkSettings)
+		: NetworkSettingsNegotiationResult;
 
-		/// <summary>
-		/// The requested protocol is carried through so the rejection can name it: when a new Minecraft
-		/// version lands, the number in that log line is the first thing needed to add support for it.
-		/// </summary>
-		public sealed record Rejected(int RequestedProtocol, PlayStatusPacket PlayStatus)
-			: NetworkSettingsNegotiationResult;
+	/// <summary>
+	/// The requested protocol is carried through so the rejection can name it: when a new Minecraft version
+	/// lands, the number in that log line is the first thing needed to add support for it.
+	/// </summary>
+	public sealed record Rejected(int RequestedProtocol, PlayStatusPacket PlayStatus)
+		: NetworkSettingsNegotiationResult;
+}
+
+public sealed class NetworkSettingsNegotiator
+{
+	private readonly ProtocolNegotiator protocolNegotiator;
+	private readonly PacketCompressionAlgorithm compressionAlgorithm;
+	private readonly int compressionThreshold;
+
+	public NetworkSettingsNegotiator(
+		ProtocolNegotiator protocolNegotiator,
+		PacketCompressionAlgorithm compressionAlgorithm,
+		int compressionThreshold
+	)
+	{
+		if (protocolNegotiator == null)
+		{
+			throw new ArgumentNullException(nameof(protocolNegotiator));
+		}
+		if (compressionThreshold < 0)
+		{
+			throw new ArgumentException("compressionThreshold cannot be negative");
+		}
+		this.protocolNegotiator = protocolNegotiator;
+		this.compressionAlgorithm = compressionAlgorithm;
+		this.compressionThreshold = compressionThreshold;
 	}
 
-	public sealed class NetworkSettingsNegotiator
+	public NetworkSettingsNegotiationResult Handle(RequestNetworkSettingsPacket request)
 	{
-		private readonly EnderPearl.Protocol.ProtocolNegotiator protocolNegotiator;
-		private readonly PacketCompressionAlgorithm compressionAlgorithm;
-		private readonly int compressionThreshold;
-
-		public NetworkSettingsNegotiator(
-			EnderPearl.Protocol.ProtocolNegotiator protocolNegotiator,
-			PacketCompressionAlgorithm compressionAlgorithm,
-			int compressionThreshold
-		)
+		ProtocolNegotiation negotiation = protocolNegotiator.Negotiate(request);
+		if (negotiation is ProtocolNegotiation.Accepted)
 		{
-			if (protocolNegotiator == null)
-			{
-				throw new ArgumentNullException(nameof(protocolNegotiator));
-			}
-			if (compressionThreshold < 0)
-			{
-				throw new ArgumentException("compressionThreshold cannot be negative");
-			}
-			this.protocolNegotiator = protocolNegotiator;
-			this.compressionAlgorithm = compressionAlgorithm;
-			this.compressionThreshold = compressionThreshold;
+			return new NetworkSettingsNegotiationResult.Accepted(AcceptedNetworkSettings());
 		}
 
-		public NetworkSettingsNegotiationResult Handle(RequestNetworkSettingsPacket request)
-		{
-			EnderPearl.Protocol.ProtocolNegotiation negotiation = protocolNegotiator.Negotiate(request);
-			if (negotiation is EnderPearl.Protocol.ProtocolNegotiation.Accepted)
-			{
-				return new NetworkSettingsNegotiationResult.Accepted(AcceptedNetworkSettings());
-			}
+		var rejected = (ProtocolNegotiation.Rejected)negotiation;
+		var playStatus = new PlayStatusPacket();
+		playStatus.Status = rejected.Status;
+		return new NetworkSettingsNegotiationResult.Rejected(rejected.RequestedProtocol, playStatus);
+	}
 
-			var rejected = (EnderPearl.Protocol.ProtocolNegotiation.Rejected)negotiation;
-			var playStatus = new PlayStatusPacket();
-			playStatus.Status = rejected.Status;
-			return new NetworkSettingsNegotiationResult.Rejected(rejected.RequestedProtocol, playStatus);
-		}
-
-		private NetworkSettingsPacket AcceptedNetworkSettings()
-		{
-			var packet = new NetworkSettingsPacket();
-			packet.CompressionAlgorithm = compressionAlgorithm;
-			packet.CompressionThreshold = (ushort)Math.Clamp(compressionThreshold, 0, ushort.MaxValue);
-			packet.ClientThrottleEnabled = false;
-			packet.ClientThrottleThreshold = 0;
-			packet.ClientThrottleScalar = 0f;
-			return packet;
-		}
+	private NetworkSettingsPacket AcceptedNetworkSettings()
+	{
+		var packet = new NetworkSettingsPacket();
+		packet.CompressionAlgorithm = compressionAlgorithm;
+		packet.CompressionThreshold = (ushort)Math.Clamp(compressionThreshold, 0, ushort.MaxValue);
+		packet.ClientThrottleEnabled = false;
+		packet.ClientThrottleThreshold = 0;
+		packet.ClientThrottleScalar = 0f;
+		return packet;
 	}
 }

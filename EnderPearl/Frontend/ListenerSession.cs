@@ -8,96 +8,94 @@ using Protocol.Types;
 using EnderPearl.Transport;
 using EnderPearl.Player;
 
-namespace EnderPearl.Frontend
+namespace EnderPearl.Frontend;
+/// <summary>
+/// The client-facing leg of one proxied player: the NetherNet connection the Bedrock client speaks on.
+/// Java subclassed BedrockServerSession; here the transport lives in <see cref="PacketConnection"/>
+/// and this class adds the proxy-specific state and disconnect semantics.
+/// </summary>
+public sealed class ListenerSession : PacketConnection
 {
-	/// <summary>
-	/// The client-facing leg of one proxied player: the NetherNet connection the Bedrock client speaks on.
-	/// Java subclassed BedrockServerSession; here the transport lives in <see cref="PacketConnection"/>
-	/// and this class adds the proxy-specific state and disconnect semantics.
-	/// </summary>
-	public sealed class ListenerSession : PacketConnection
+	private readonly Action<ListenerSession> closeListener;
+	private volatile bool throttled = true;
+
+	public ListenerSession(NetherNetConnection conn, Action<ListenerSession> closeListener)
 	{
-		private readonly Action<ListenerSession> closeListener;
-		private volatile bool throttled = true;
+		this.closeListener = closeListener ?? throw new ArgumentNullException(nameof(closeListener));
+		Attach(conn);
+	}
 
-		public ListenerSession(NetherNetConnection conn, Action<ListenerSession> closeListener)
+	public ProxyConnection? ProxyConnection { get; set; }
+
+	/// <summary>
+	/// Whether this session claimed a slot from the per-address connection throttle, and so must
+	/// return one when it closes. False for bridge sessions, which never took one - releasing a
+	/// slot that was not claimed would hand 127.0.0.1 a growing free allowance.
+	/// </summary>
+	public bool IsThrottled => throttled;
+
+	public void SetThrottled(bool value)
+	{
+		throttled = value;
+	}
+
+	public PacketSignal Handle(IPacket packet) => PacketSignal.Unhandled;
+
+	/// <summary>
+	/// Kicks the client with a DisconnectPacket carrying <paramref name="reason"/>, then closes the
+	/// transport. Safe to call from any thread and idempotent like Java's session.disconnect.
+	/// </summary>
+	public void Disconnect(string reason)
+	{
+		if (!IsConnected)
 		{
-			this.closeListener = closeListener ?? throw new ArgumentNullException(nameof(closeListener));
-			Attach(conn);
+			CloseTransport();
+			return;
 		}
-
-		public ProxyConnection? ProxyConnection { get; set; }
-
-		/// <summary>
-		/// Whether this session claimed a slot from the per-address connection throttle, and so must
-		/// return one when it closes. False for bridge sessions, which never took one - releasing a
-		/// slot that was not claimed would hand 127.0.0.1 a growing free allowance.
-		/// </summary>
-		public bool IsThrottled => throttled;
-
-		public void SetThrottled(bool value)
+		try
 		{
-			throttled = value;
-		}
-
-		public PacketSignal Handle(IPacket packet) => PacketSignal.Unhandled;
-
-		/// <summary>
-		/// Kicks the client with a DisconnectPacket carrying <paramref name="reason"/>, then closes the
-		/// transport. Safe to call from any thread and idempotent like Java's session.disconnect.
-		/// </summary>
-		public void Disconnect(string reason)
-		{
-			if (!IsConnected)
+			SendPacket(new DisconnectPacket
 			{
-				CloseTransport();
-				return;
-			}
-			try
-			{
-				SendPacket(new DisconnectPacket
+				Reason = DisconnectFailReason.Kicked,
+				Messages = OneOf.OneOf<DisconnectPacketMessages, object>.FromT0(new DisconnectPacketMessages
 				{
-					Reason = DisconnectFailReason.Kicked,
-					Messages = OneOf.OneOf<DisconnectPacketMessages, object>.FromT0(new DisconnectPacketMessages
-					{
-						Message = reason,
-						FilteredMessage = ""
-					})
-				});
-			}
-			catch (Exception exception)
-			{
-				Logger.Error($"Failed to send disconnect to {RemoteEndPoint}: {exception.Message}");
-			}
-			finally
-			{
-				CloseTransport();
-			}
+					Message = reason,
+					FilteredMessage = ""
+				})
+			});
 		}
-
-		protected override void OnBatchDecodeFailure(Exception exception)
+		catch (Exception exception)
 		{
-			// A batch we could not parse is a protocol fault on the client leg: drop the connection
-			// rather than relay garbage onward.
-			CloseTransport();
+			Logger.Error($"Failed to send disconnect to {RemoteEndPoint}: {exception.Message}");
 		}
-
-		protected override void OnTransportClosed()
-		{
-			base.OnTransportClosed();
-			try
-			{
-				closeListener(this);
-			}
-			catch (Exception exception)
-			{
-				Logger.Error($"Listener close listener threw: {exception}");
-			}
-		}
-
-		public override void Dispose()
+		finally
 		{
 			CloseTransport();
 		}
+	}
+
+	protected override void OnBatchDecodeFailure(Exception exception)
+	{
+		// A batch we could not parse is a protocol fault on the client leg: drop the connection
+		// rather than relay garbage onward.
+		CloseTransport();
+	}
+
+	protected override void OnTransportClosed()
+	{
+		base.OnTransportClosed();
+		try
+		{
+			closeListener(this);
+		}
+		catch (Exception exception)
+		{
+			Logger.Error($"Listener close listener threw: {exception}");
+		}
+	}
+
+	public override void Dispose()
+	{
+		CloseTransport();
 	}
 }

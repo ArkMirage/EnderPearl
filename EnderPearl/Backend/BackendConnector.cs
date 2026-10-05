@@ -14,505 +14,480 @@ using EnderPearl.Relay;
 using EnderPearl.Server;
 using EnderPearl.Transport;
 
-namespace EnderPearl.Backend
+namespace EnderPearl.Backend;
+/// <summary>
+/// Dials backends and drives a player onto them: the join try-list at login, /server-style switches,
+/// and the Failover path all end here.
+/// </summary>
+	public sealed class BackendConnector
 {
-	/// <summary>
-	/// Dials backends and drives a player onto them: the join try-list at login, /server-style switches,
-	/// and the Failover path all end here.
-	/// </summary>
-		public sealed class BackendConnector
+	public required ProxyCommandManager CommandManager { get; init; }
+	public required OnlineLoginForge OnlineLoginForge { get; init; }
+
+	private readonly BackendProtocolDetector protocolDetector = new();
+	private readonly ReconnectRoutes reconnectRoutes = new();
+	private BackendSwitcher? switcherInstance;
+	private BackendFailover? failoverInstance;
+	private JoinFailover? joinFailoverInstance;
+
+	public BackendSwitcher Switcher => switcherInstance ??= new BackendSwitcher(this, ProxyServer.Policy.BackendSwitch);
+
+	public BackendFailover Failover => failoverInstance ??= new BackendFailover(ProxyServer.BackendDirectory, this, ProxyServer.Policy.Failover);
+
+	public JoinFailover JoinFailover => joinFailoverInstance ??= new JoinFailover(this);
+
+/// <summary>
+/// Builds the derived components and runs their startup-time config checks. Call once, after the
+/// object initializer, before the first join is dialled.
+/// </summary>
+	public BackendConnector Prepare()
 	{
-		public required ProxyCommandManager CommandManager { get; init; }
-		public required OnlineLoginForge OnlineLoginForge { get; init; }
+		switcherInstance = Switcher;
+		failoverInstance = Failover;
+		joinFailoverInstance = JoinFailover;
+		return this;
+	}
 
-		private readonly BackendProtocolDetector protocolDetector = new();
-		private readonly ReconnectRoutes reconnectRoutes = new();
-		private BackendSwitcher? switcherInstance;
-		private BackendFailover? failoverInstance;
-		private JoinFailover? joinFailoverInstance;
-
-		public BackendSwitcher Switcher => switcherInstance ??= new BackendSwitcher(this, ProxyServer.Policy.BackendSwitch);
-
-		public BackendFailover Failover => failoverInstance ??= new BackendFailover(ProxyServer.BackendDirectory, this, ProxyServer.Policy.Failover);
-
-		public JoinFailover JoinFailover => joinFailoverInstance ??= new JoinFailover(this);
-
-	/// <summary>
-	/// Builds the derived components and runs their startup-time config checks. Call once, after the
-	/// object initializer, before the first join is dialled.
+/// <summary>
+	/// Whether this player can only reach a backend by reconnecting.
+	///
+	/// <para>A Bedrock client fixes its block-id scheme from the StartGame it logged in with and cannot
+	/// be told otherwise while it is playing, so a seamless handoff to a backend on the other scheme
+	/// delivers chunks the client cannot decode: the player stands in an empty or scrambled world.
+	/// Backends that hash block ids (every Bedrock server) and ones that number them by palette order
+	/// (a Geyser instance fronting a Java server) are the two schemes in practice.</para>
+	///
+	/// <para>Answered false while either side is unknown. Guessing "reconnect" for an unvisited backend
+	/// would put a loading screen in front of the ordinary same-scheme switch that makes up almost
+	/// every move on a network; the scheme is learned from the first StartGame and persisted, so the
+	/// uncertainty lasts one visit rather than one restart.</para>
 	/// </summary>
-		public BackendConnector Prepare()
-		{
-			switcherInstance = Switcher;
-			failoverInstance = Failover;
-			joinFailoverInstance = JoinFailover;
-			return this;
-		}
+	public bool NeedsReconnectToReach(ProxyConnection connection, BackendConfig backend)
+	{
+		bool? clientHashed = connection.ClientBlockIdsHashed();
+		bool? backendHashed = BackendBlockSchemes.IsHashed(backend.Name);
+		return clientHashed != null && backendHashed != null && clientHashed != backendHashed;
+	}
 
 	/// <summary>
-		/// Whether this player can only reach a backend by reconnecting.
-		///
-		/// <para>A Bedrock client fixes its block-id scheme from the StartGame it logged in with and cannot
-		/// be told otherwise while it is playing, so a seamless handoff to a backend on the other scheme
-		/// delivers chunks the client cannot decode: the player stands in an empty or scrambled world.
-		/// Backends that hash block ids (every Bedrock server) and ones that number them by palette order
-		/// (a Geyser instance fronting a Java server) are the two schemes in practice.</para>
-		///
-		/// <para>Answered false while either side is unknown. Guessing "reconnect" for an unvisited backend
-		/// would put a loading screen in front of the ordinary same-scheme switch that makes up almost
-		/// every move on a network; the scheme is learned from the first StartGame and persisted, so the
-		/// uncertainty lasts one visit rather than one restart.</para>
-		/// </summary>
-		public bool NeedsReconnectToReach(ProxyConnection connection, BackendConfig backend)
+	/// Sends the player back to the proxy to reach a backend a handoff cannot.
+	///
+	/// <para>The transfer names the proxy's own address, so the player never leaves it: the same
+	/// listener answers, the same identity is verified again, and the backend stays unreachable from
+	/// outside. What changes is that the client re-runs level init, which is the only way it will
+	/// read a different block-id scheme.</para>
+	/// </summary>
+	public bool ReconnectTo(ProxyConnection connection, BackendConfig backend)
+	{
+		ReconnectAddress? target = ReconnectAddressOf(connection);
+		if (target == null)
 		{
-			bool? clientHashed = connection.ClientBlockIdsHashed();
-			bool? backendHashed = BackendBlockSchemes.IsHashed(backend.Name);
-			return clientHashed != null && backendHashed != null && clientHashed != backendHashed;
-		}
-
-		/// <summary>
-		/// Sends the player back to the proxy to reach a backend a handoff cannot.
-		///
-		/// <para>The transfer names the proxy's own address, so the player never leaves it: the same
-		/// listener answers, the same identity is verified again, and the backend stays unreachable from
-		/// outside. What changes is that the client re-runs level init, which is the only way it will
-		/// read a different block-id scheme.</para>
-		/// </summary>
-		public bool ReconnectTo(ProxyConnection connection, BackendConfig backend)
-		{
-			ReconnectAddress? target = ReconnectAddressOf(connection);
-			if (target == null)
-			{
-				SendMessageTo(connection, "Unable to reach " + backend.Name + " from here. Reconnect and pick it from the server list.");
-				Logger.Info(
-					$"Cannot send {connection.ClientLogin.AuthData.DisplayName} to {backend.Name}: it needs a reconnect, and the proxy has no address to send them back to."
-					+ " Set PublicAddress in the config.");
-				return false;
-			}
-
-			reconnectRoutes.Remember(connection.ClientLogin.AuthData.Xuid, backend.Name);
+			SendMessageTo(connection, "Unable to reach " + backend.Name + " from here. Reconnect and pick it from the server list.");
 			Logger.Info(
-				$"Sending {connection.ClientLogin.AuthData.DisplayName} to {backend.Name} by reconnect via {target.Host}:{target.Port}"
-				+ " (it numbers block ids differently to the world they logged into).");
-			SendMessageTo(connection, "Taking you to " + backend.Name + "...");
-
-			TransferPacket transfer = new TransferPacket
-			{
-				ServerAddress = target.Host,
-				ServerPort = (ushort)target.Port
-			};
-			connection.Client.SendPacket(transfer);
-			return true;
+				$"Cannot send {connection.ClientLogin.AuthData.DisplayName} to {backend.Name}: it needs a reconnect, and the proxy has no address to send them back to."
+				+ " Set PublicAddress in the config.");
+			return false;
 		}
 
-		/// <summary>
-		/// Where to tell the client to reconnect: the operator's PublicAddress if set, otherwise the
-		/// address this player themselves connected with.
-		///
-		/// <para>The claim carries the port the player actually used, which is the right one to send them
-		/// back to when the proxy sits behind a forwarded port. It is unsigned and a modified client can
-		/// claim anything, which is harmless here: the worst outcome is that a player fails to reconnect
-		/// to an address they supplied.</para>
-		/// </summary>
-		private ReconnectAddress? ReconnectAddressOf(ProxyConnection connection)
+		reconnectRoutes.Remember(connection.ClientLogin.AuthData.Xuid, backend.Name);
+		Logger.Info(
+			$"Sending {connection.ClientLogin.AuthData.DisplayName} to {backend.Name} by reconnect via {target.Host}:{target.Port}"
+			+ " (it numbers block ids differently to the world they logged into).");
+		SendMessageTo(connection, "Taking you to " + backend.Name + "...");
+
+		TransferPacket transfer = new TransferPacket
 		{
-			ReconnectAddress? configured = ReconnectAddress.Parse(ProxyServer.Config.PublicAddress, ProxyServer.Config.ListenAddress.Port);
-			if (configured != null)
-			{
-				return configured;
-			}
-			return ReconnectAddress.Parse(ClientServerAddress(connection), ProxyServer.Config.ListenAddress.Port);
+			ServerAddress = target.Host,
+			ServerPort = (ushort)target.Port
+		};
+		connection.Client.SendPacket(transfer);
+		return true;
+	}
+
+	/// <summary>
+	/// Where to tell the client to reconnect: the operator's PublicAddress if set, otherwise the
+	/// address this player themselves connected with.
+	///
+	/// <para>The claim carries the port the player actually used, which is the right one to send them
+	/// back to when the proxy sits behind a forwarded port. It is unsigned and a modified client can
+	/// claim anything, which is harmless here: the worst outcome is that a player fails to reconnect
+	/// to an address they supplied.</para>
+	/// </summary>
+	private ReconnectAddress? ReconnectAddressOf(ProxyConnection connection)
+	{
+		ReconnectAddress? configured = ReconnectAddress.Parse(ProxyServer.Config.PublicAddress, ProxyServer.Config.ListenAddress.Port);
+		if (configured != null)
+		{
+			return configured;
+		}
+		return ReconnectAddress.Parse(ClientServerAddress(connection), ProxyServer.Config.ListenAddress.Port);
+	}
+
+	public ReconnectRoutes ReconnectRoutes => reconnectRoutes;
+
+	/// <summary>False while the backend has never been seen, so the config key remains the way to say so.</summary>
+	private bool DoesNotImplementSubChunks(BackendConfig backend)
+	{
+		bool? hashed = BackendBlockSchemes.IsHashed(backend.Name);
+		return hashed != null && !hashed.Value;
+	}
+
+	private static void SendMessageTo(ProxyConnection connection, string message)
+	{
+		BackendSwitcher.SendMessage(connection, message);
+	}
+
+	/// <summary>Connects a joining player, walking the configured try-list if the first will not have them.</summary>
+	public void Connect(ProxyConnection connection)
+	{
+		List<BackendConfig> candidates = JoinCandidates.Expand(
+			InitialBackend(connection),
+			ProxyServer.Policy.Join,
+			ProxyServer.BackendDirectory);
+		BackendConfig first = candidates[0];
+		connection.BeginJoinSequence(candidates.GetRange(1, candidates.Count - 1));
+		Connect(connection, first);
+	}
+
+	/// <summary>
+	/// The backend a joining player lands on: their forced host if the address they connected with
+	/// has one, otherwise the default backend.
+	/// </summary>
+	private BackendConfig InitialBackend(ProxyConnection connection)
+	{
+		// A player the proxy itself just asked to reconnect goes where they were headed, ahead of
+		// any other rule: they did not choose to log in, they were sent round the loop to reach a
+		// backend a handoff could not, and dropping them on the default one instead would look like
+		// the move had simply failed.
+		// (Java reached the same outcome via find(String.valueOf(take(...))): a null route became
+		// the harmless literal "null", which simply missed the map. Here an absent route skips the
+		// lookup - BackendDirectory.Find throws on blank names.)
+		string? pendingRoute = reconnectRoutes.Take(connection.ClientLogin.AuthData.Xuid);
+		BackendConfig? pending = pendingRoute == null ? null : ProxyServer.BackendDirectory.Find(pendingRoute);
+		if (pending != null)
+		{
+			Logger.Info(
+				$"Routing {connection.ClientLogin.AuthData.DisplayName} to backend {pending.Name}: completing the reconnect they were sent on.");
+			return pending;
 		}
 
-		public ReconnectRoutes ReconnectRoutes => reconnectRoutes;
-
-		/// <summary>False while the backend has never been seen, so the config key remains the way to say so.</summary>
-		private bool DoesNotImplementSubChunks(BackendConfig backend)
+		ForcedHostsConfig forcedHosts = ProxyServer.Policy.ForcedHosts;
+		if (forcedHosts.IsEmpty())
 		{
-			bool? hashed = BackendBlockSchemes.IsHashed(backend.Name);
-			return hashed != null && !hashed.Value;
-		}
-
-		private static void SendMessageTo(ProxyConnection connection, string message)
-		{
-			BackendSwitcher.SendMessage(connection, message);
-		}
-
-		/// <summary>Connects a joining player, walking the configured try-list if the first will not have them.</summary>
-		public void Connect(ProxyConnection connection)
-		{
-			List<BackendConfig> candidates = JoinCandidates.Expand(
-				InitialBackend(connection),
-				ProxyServer.Policy.Join,
-				ProxyServer.BackendDirectory);
-			BackendConfig first = candidates[0];
-			connection.BeginJoinSequence(candidates.GetRange(1, candidates.Count - 1));
-			Connect(connection, first);
-		}
-
-		/// <summary>
-		/// The backend a joining player lands on: their forced host if the address they connected with
-		/// has one, otherwise the default backend.
-		/// </summary>
-		private BackendConfig InitialBackend(ProxyConnection connection)
-		{
-			// A player the proxy itself just asked to reconnect goes where they were headed, ahead of
-			// any other rule: they did not choose to log in, they were sent round the loop to reach a
-			// backend a handoff could not, and dropping them on the default one instead would look like
-			// the move had simply failed.
-			// (Java reached the same outcome via find(String.valueOf(take(...))): a null route became
-			// the harmless literal "null", which simply missed the map. Here an absent route skips the
-			// lookup - BackendDirectory.Find throws on blank names.)
-			string? pendingRoute = reconnectRoutes.Take(connection.ClientLogin.AuthData.Xuid);
-			BackendConfig? pending = pendingRoute == null ? null : ProxyServer.BackendDirectory.Find(pendingRoute);
-			if (pending != null)
-			{
-				Logger.Info(
-					$"Routing {connection.ClientLogin.AuthData.DisplayName} to backend {pending.Name}: completing the reconnect they were sent on.");
-				return pending;
-			}
-
-			ForcedHostsConfig forcedHosts = ProxyServer.Policy.ForcedHosts;
-			if (forcedHosts.IsEmpty())
-			{
-				return ProxyServer.BackendDirectory.DefaultBackend();
-			}
-			string serverAddress = ClientServerAddress(connection);
-			if (forcedHosts.TryBackendFor(serverAddress, out string? forcedName))
-			{
-				BackendConfig? forced = ProxyServer.BackendDirectory.Find(forcedName!);
-				if (forced != null)
-				{
-					Logger.Info(
-						$"Routing {connection.ClientLogin.AuthData.DisplayName} to backend {forced.Name} by forced host '{serverAddress}'.");
-					return forced;
-				}
-			}
 			return ProxyServer.BackendDirectory.DefaultBackend();
 		}
-
-		private static string ClientServerAddress(ProxyConnection connection)
+		string serverAddress = ClientServerAddress(connection);
+		if (forcedHosts.TryBackendFor(serverAddress, out string? forcedName))
 		{
-			return connection.ClientLogin.SkinData.TryGetPropertyValue("ServerAddress", out var node)
-				? node?.ToString() ?? ""
-				: "";
-		}
-
-		public void Connect(ProxyConnection connection, BackendConfig backendConfig)
-		{
-			connection.BeginJoinAttempt();
-			ConnectInternal(connection, backendConfig, true, new PlainActivation(connection, backendConfig, JoinFailover));
-		}
-
-		private sealed class PlainActivation : BackendActivation
-		{
-			private readonly ProxyConnection connection;
-			private readonly BackendConfig backendConfig;
-			private readonly JoinFailover JoinFailover;
-
-			public PlainActivation(ProxyConnection connection, BackendConfig backendConfig, JoinFailover JoinFailover)
+			BackendConfig? forced = ProxyServer.BackendDirectory.Find(forcedName!);
+			if (forced != null)
 			{
-				this.connection = connection;
-				this.backendConfig = backendConfig;
-				this.JoinFailover = JoinFailover;
-			}
-
-			public override void OnReady(BackendSession backend)
-			{
-				connection.SetBackend(backendConfig.Name, backend);
-			}
-
-			public override void OnStartGame(BackendSession backend)
-			{
-			}
-
-			public override void OnFailure(BackendSession? backend, Exception exception)
-			{
-				// Covers both "the backend never answered" and "the handshake failed".
-				string reason = exception is UnsupportedVersionPairException ? exception.Message : "unreachable";
-				if (JoinFailover.HandleJoinFailure(connection, backendConfig.Name, reason))
-				{
-					return;
-				}
-				connection.Client.Disconnect(FailureMessage(exception, "Unable to connect to backend server"));
+				Logger.Info(
+					$"Routing {connection.ClientLogin.AuthData.DisplayName} to backend {forced.Name} by forced host '{serverAddress}'.");
+				return forced;
 			}
 		}
+		return ProxyServer.BackendDirectory.DefaultBackend();
+	}
 
-		/// <summary>
-		/// Moves an already-playing client to another backend. Completes when the target's StartGame has
-		/// arrived and the client has been handed over; faults when the switch fails.
-		/// </summary>
-		public Task ConnectForSwitch(ProxyConnection connection, BackendConfig backendConfig)
+	private static string ClientServerAddress(ProxyConnection connection)
+	{
+		return connection.ClientLogin.SkinData.TryGetPropertyValue("ServerAddress", out var node)
+			? node?.ToString() ?? ""
+			: "";
+	}
+
+	public void Connect(ProxyConnection connection, BackendConfig backendConfig)
+	{
+		connection.BeginJoinAttempt();
+		ConnectInternal(connection, backendConfig, true, new PlainActivation(connection, backendConfig, JoinFailover));
+	}
+
+	private sealed class PlainActivation : BackendActivation
+	{
+		private readonly ProxyConnection connection;
+		private readonly BackendConfig backendConfig;
+		private readonly JoinFailover JoinFailover;
+
+		public PlainActivation(ProxyConnection connection, BackendConfig backendConfig, JoinFailover JoinFailover)
 		{
-			var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-			try
-			{
-				ConnectInternal(connection, backendConfig, false, new SwitchActivation(
-					connection, backendConfig, completion));
-			}
-			catch (Exception exception)
-			{
-				// onFailure has already run and completed the future; this only covers a throw that
-				// never reached it.
-				completion.TrySetException(exception);
-			}
-			return completion.Task;
+			this.connection = connection;
+			this.backendConfig = backendConfig;
+			this.JoinFailover = JoinFailover;
 		}
 
-		private sealed class SwitchActivation : BackendActivation
+		public override void OnReady(BackendSession backend)
 		{
-			private readonly ProxyConnection connection;
-			private readonly BackendConfig backendConfig;
-			private readonly TaskCompletionSource completion;
-
-			public SwitchActivation(ProxyConnection connection, BackendConfig backendConfig, TaskCompletionSource completion)
-			{
-				this.connection = connection;
-				this.backendConfig = backendConfig;
-				this.completion = completion;
-			}
-
-			public override void OnReady(BackendSession backend)
-			{
-				BackendSwitcher.SendMessage(connection, "Joining " + backendConfig.Name + "...");
-			}
-
-			public override void OnStartGame(BackendSession backend)
-			{
-				BackendSession? previous = connection.ReplaceBackend(backendConfig.Name, backend);
-				if (previous != null && !ReferenceEquals(previous, backend) && previous.IsConnected)
-				{
-					previous.Disconnect("Switching backend");
-				}
-				BackendSwitcher.SendMessage(connection, "Connected to " + backendConfig.Name + ".");
-				completion.TrySetResult();
-			}
-
-			public override void OnFailure(BackendSession? backend, Exception exception)
-			{
-				// The switch lock is the caller's; releasing it here would let a second switch start
-				// in the middle of a retry sequence.
-				connection.ClearPendingBackend(backend!);
-				if (exception is UnsupportedVersionPairException unsupported)
-				{
-					BackendSwitcher.SendMessage(connection, unsupported.Message);
-				}
-				if (backend != null && backend.IsConnected)
-				{
-					backend.SetDisconnectClientOnClose(false);
-					backend.DiscardInboundPackets();
-					backend.Disconnect("Backend switch failed");
-				}
-				completion.TrySetException(exception);
-			}
+			connection.SetBackend(backendConfig.Name, backend);
 		}
 
-		private void ConnectInternal(
-			ProxyConnection connection,
-			BackendConfig backendConfig,
-			bool disconnectClientOnClose,
-			BackendActivation activation
-		)
+		public override void OnStartGame(BackendSession backend)
 		{
-			Logger.Info(
-				$"Dialing backend {backendConfig.Name} at {backendConfig.Address} (join={disconnectClientOnClose}) for {connection.ClientLogin.AuthData.DisplayName}.");
-			string oidcToken = "";
-			try
-			{
-				BackendProtocol backendProtocol = ResolveBackendProtocol(backendConfig);
-				(LoginPacket backendLogin, string token) = BuildBackendLogin(connection, backendConfig, backendProtocol);
-				connection.SetBackendLogin(backendLogin);
-				oidcToken = token;
-				if (ProxyConnection.IsPacketTracingConfigured())
-				{
-					int clientProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
-					Logger.Info(
-						$"Selected backend {backendConfig.Name} protocol {VersionName(backendProtocol.MinecraftVersion, backendProtocol.ProtocolVersion)} for client protocol {clientProtocol}.");
-				}
-			}
-			catch (UnsupportedVersionPairException exception)
-			{
-				activation.OnFailure(null, exception);
-				throw;
-			}
-
-			BackendSession? createdSession = null;
-			try
-			{
-				NetherNetConnection conn = Dial(backendConfig.Address, BuildNetherNetIdentity(connection, oidcToken));
-				createdSession = new BackendSession(conn);
-				createdSession.Connection = connection;
-				createdSession.SetDisconnectClientOnClose(disconnectClientOnClose);
-				// Inferred rather than configured wherever possible: a backend that numbers block ids by
-				// palette order is not really a Bedrock server and does not implement the sub-chunk
-				// system either. The config key stays as an override for a backend nobody has visited
-				// yet, but an ordinary install never needs to set it.
-				createdSession.SetDropSubChunkRequests(
-					backendConfig.DropSubChunkRequests || DoesNotImplementSubChunks(backendConfig));
-				if (!disconnectClientOnClose)
-				{
-					connection.SetPendingBackend(createdSession);
-				}
-				createdSession.SetPacketHandler(new BackendInitialPacketHandler
-				{
-					Connection = connection,
-					Backend = createdSession,
-					BackendName = backendConfig.Name,
-					CommandRouter = new BackendCommandRouter(),
-					CommandManager = CommandManager,
-					BackendSwitcher = Switcher,
-					Activation = activation,
-					Failover = Failover,
-					JoinFailover = JoinFailover
-				});
-				// Handler first, read loop second (Java's initSession ordering).
-				createdSession.StartReading();
-				Logger.Info($"Backend {backendConfig.Name}: NetherNet connection established; requesting network settings.");
-			}
-			catch (Exception exception)
-			{
-				// onFailure must run anyway - it is the only report the caller gets, and skipping it
-				// for the most ordinary failure of all ("the backend is down") leaves a player stuck.
-				activation.OnFailure(createdSession, new InvalidOperationException(
-					"Unable to connect to backend " + backendConfig.Address, exception));
-				throw new InvalidOperationException("Unable to connect to backend " + backendConfig.Address, exception);
-			}
-
-			BackendSession backend = createdSession!;
-			backend.SendPacketImmediately(new RequestNetworkSettingsPacket
-			{
-				ClientNetworkVersion = (int)global::Protocol.ProtocolVersion.VERSION
-			});
 		}
 
-		private NetherNetConnection Dial(IPEndPoint address, NetherNet.Identity identity)
+		public override void OnFailure(BackendSession? backend, Exception exception)
 		{
-			string host = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
-				? "[" + address.Address + "]"
-				: address.Address.ToString();
-			string url = $"http://{host}:{address.Port}";
-			var client = new NetherNet.Endpoint.Client(new NetherNet.Endpoint.ClientConfig
-			{
-				Logger = message => Logger.Info($"[Proxy To Server] {message}"),
-			});
-			var dialer = new NetherNet.Dialer
-			{
-				DisableTrickleICE = true,
-				Log = message => Logger.Info($"[Proxy To Server] {message}"),
-				Credentials = _ => Task.FromResult<NetherNet.Credentials?>(ProxyServer.Config.NetherNet.ToCredentials()),
-				Identity = identity,
-			};
-			// Java set RAK_CONNECT_TIMEOUT from switch.connectTimeoutMillis (default 5000ms); without
-			// it a dead backend costs the transport's full session timeout per attempt, which halves
-			// the number of tries that fit inside the /server retry window.
-			using var timeout = new CancellationTokenSource(
-				TimeSpan.FromMilliseconds(ProxyServer.Policy.BackendSwitch.ConnectTimeoutMillis));
-			NetherNet.Conn conn = dialer.DialContextAsync(timeout.Token, url, client).GetAwaiter().GetResult();
-			return new NetherNetConnection(conn);
-		}
-
-		private sealed record BackendProtocol(int ProtocolVersion, string? MinecraftVersion);
-
-		private BackendProtocol ResolveBackendProtocol(BackendConfig backendConfig)
-		{
-			BackendProtocolDetector.PongResult pong;
-			try
-			{
-				pong = protocolDetector.Detect(backendConfig.Address);
-			}
-			catch (Exception exception)
-			{
-				// Probing is a convenience, not a requirement: some builds answer the unconnected ping
-				// with a truncated pong that carries no version payload. Assume the backend matches the
-				// proxy rather than refusing a join we have not actually tried.
-				return AssumeSupportedProtocol(backendConfig, exception);
-			}
-
-			int protocolVersion = pong.ProtocolVersion;
-			string minecraftVersion = pong.Version;
-			if (protocolVersion != (int)global::Protocol.ProtocolVersion.VERSION)
-			{
-				throw new UnsupportedVersionPairException(
-					"Unsupported backend version "
-					+ VersionName(minecraftVersion, protocolVersion)
-					+ " on " + backendConfig.Name + "."
-				);
-			}
-			return new BackendProtocol(protocolVersion, minecraftVersion);
-		}
-
-		private static BackendProtocol AssumeSupportedProtocol(BackendConfig backendConfig, Exception cause)
-		{
-			int assumed = (int)global::Protocol.ProtocolVersion.VERSION;
-			Logger.Info(
-				$"WARNING: {backendConfig.Name} at {backendConfig.Address} did not answer the protocol probe ({cause.Message}). Assuming it speaks protocol {assumed}.");
-			return new BackendProtocol(assumed, null);
-		}
-
-		private static string VersionName(string? minecraftVersion, int protocolVersion)
-		{
-			if (string.IsNullOrWhiteSpace(minecraftVersion))
-			{
-				return "protocol " + protocolVersion;
-			}
-			return minecraftVersion + " (protocol " + protocolVersion + ")";
-		}
-
-		private static string FailureMessage(Exception exception, string fallback)
-		{
-			return exception is UnsupportedVersionPairException ? exception.Message : fallback;
-		}
-
-		/// <summary>
-		/// Prints every field a backend can key persistent player data on, so rejoin-to-rejoin identity
-		/// drift shows up as one diffable line instead of a support ticket about lost inventories.
-		/// </summary>
-		private static void LogBackendIdentity(ProxyConnection connection, BackendConfig backendConfig, int backendProtocolVersion)
-		{
-			if (!ProxyConnection.IsPacketTracingConfigured())
+			// Covers both "the backend never answered" and "the handshake failed".
+			string reason = exception is UnsupportedVersionPairException ? exception.Message : "unreachable";
+			if (JoinFailover.HandleJoinFailure(connection, backendConfig.Name, reason))
 			{
 				return;
 			}
-			AuthData authData = connection.ClientLogin.AuthData;
-			Logger.Info(
-				$"BACKEND IDENTITY for {backendConfig.Name} (protocol {backendProtocolVersion}): name={authData.DisplayName} xuid={authData.Xuid} identity={authData.Identity}");
+			connection.Client.Disconnect(FailureMessage(exception, "Unable to connect to backend server"));
+		}
+	}
+
+	/// <summary>
+	/// Moves an already-playing client to another backend. Completes when the target's StartGame has
+	/// arrived and the client has been handed over; faults when the switch fails.
+	/// </summary>
+	public Task ConnectForSwitch(ProxyConnection connection, BackendConfig backendConfig)
+	{
+		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		try
+		{
+			ConnectInternal(connection, backendConfig, false, new SwitchActivation(
+				connection, backendConfig, completion));
+		}
+		catch (Exception exception)
+		{
+			// onFailure has already run and completed the future; this only covers a throw that
+			// never reached it.
+			completion.TrySetException(exception);
+		}
+		return completion.Task;
+	}
+
+	private sealed class SwitchActivation : BackendActivation
+	{
+		private readonly ProxyConnection connection;
+		private readonly BackendConfig backendConfig;
+		private readonly TaskCompletionSource completion;
+
+		public SwitchActivation(ProxyConnection connection, BackendConfig backendConfig, TaskCompletionSource completion)
+		{
+			this.connection = connection;
+			this.backendConfig = backendConfig;
+			this.completion = completion;
 		}
 
-		private (LoginPacket Login, string OidcToken) BuildBackendLogin(
-			ProxyConnection connection,
-			BackendConfig backendConfig,
-			BackendProtocol backendProtocol
-		)
+		public override void OnReady(BackendSession backend)
 		{
-			int backendProtocolVersion = backendProtocol.ProtocolVersion;
-			LogBackendIdentity(connection, backendConfig, backendProtocolVersion);
-			// Java used getHostString()+":"+port - the host exactly as configured, no reverse lookup.
-			string serverAddress = backendConfig.HostString + ":" + backendConfig.Address.Port;
-			// This build only ever talks to 1.26.10+ servers, which expect the modern OIDC token format.
-			LoginPacket backendLogin = OnlineLoginForge.Forge(
-				connection.KeyPair,
-				connection.ClientLogin,
-				backendProtocol.MinecraftVersion,
-				serverAddress,
-				ProxyServer.MimicIdentity,
-				out string oidcToken
-			);
-			return (backendLogin, oidcToken);
+			BackendSwitcher.SendMessage(connection, "Joining " + backendConfig.Name + "...");
 		}
 
-		/// <summary>
-		/// The NetherNet identity presented to the backend. A genuine client always asserts one, and a
-		/// backend in online mode answers an offer without one with ErrorCodeIdentityNotAllowed (37),
-		/// so the offer must carry the same token the Login packet does.
-		/// </summary>
-		private static NetherNet.Identity BuildNetherNetIdentity(ProxyConnection connection, string oidcToken)
+		public override void OnStartGame(BackendSession backend)
 		{
-			return new NetherNet.Identity
+			BackendSession? previous = connection.ReplaceBackend(backendConfig.Name, backend);
+			if (previous != null && !ReferenceEquals(previous, backend) && previous.IsConnected)
 			{
-				PrivateKey = connection.KeyPair.Signer,
-				Token = oidcToken,
-				Domain = "https://authorization.franchise.minecraft-services.net"
-			};
+				previous.Disconnect("Switching backend");
+			}
+			BackendSwitcher.SendMessage(connection, "Connected to " + backendConfig.Name + ".");
+			completion.TrySetResult();
 		}
+
+		public override void OnFailure(BackendSession? backend, Exception exception)
+		{
+			// The switch lock is the caller's; releasing it here would let a second switch start
+			// in the middle of a retry sequence.
+			connection.ClearPendingBackend(backend!);
+			if (exception is UnsupportedVersionPairException unsupported)
+			{
+				BackendSwitcher.SendMessage(connection, unsupported.Message);
+			}
+			if (backend != null && backend.IsConnected)
+			{
+				backend.SetDisconnectClientOnClose(false);
+				backend.DiscardInboundPackets();
+				backend.Disconnect("Backend switch failed");
+			}
+			completion.TrySetException(exception);
+		}
+	}
+
+	private void ConnectInternal(
+		ProxyConnection connection,
+		BackendConfig backendConfig,
+		bool disconnectClientOnClose,
+		BackendActivation activation
+	)
+	{
+		Logger.Info(
+			$"Dialing backend {backendConfig.Name} at {backendConfig.Address} (join={disconnectClientOnClose}) for {connection.ClientLogin.AuthData.DisplayName}.");
+		string oidcToken = "";
+		try
+		{
+			BackendProtocol backendProtocol = ResolveBackendProtocol(backendConfig);
+			(LoginPacket backendLogin, string token) = BuildBackendLogin(connection, backendConfig, backendProtocol);
+			connection.SetBackendLogin(backendLogin);
+			oidcToken = token;
+		}
+		catch (UnsupportedVersionPairException exception)
+		{
+			activation.OnFailure(null, exception);
+			throw;
+		}
+
+		BackendSession? createdSession = null;
+		try
+		{
+			NetherNetConnection conn = Dial(backendConfig.Address, BuildNetherNetIdentity(connection, oidcToken));
+			createdSession = new BackendSession(conn);
+			createdSession.Connection = connection;
+			createdSession.SetDisconnectClientOnClose(disconnectClientOnClose);
+			// Inferred rather than configured wherever possible: a backend that numbers block ids by
+			// palette order is not really a Bedrock server and does not implement the sub-chunk
+			// system either. The config key stays as an override for a backend nobody has visited
+			// yet, but an ordinary install never needs to set it.
+			createdSession.SetDropSubChunkRequests(
+				backendConfig.DropSubChunkRequests || DoesNotImplementSubChunks(backendConfig));
+			if (!disconnectClientOnClose)
+			{
+				connection.SetPendingBackend(createdSession);
+			}
+			createdSession.SetPacketHandler(new BackendInitialPacketHandler
+			{
+				Connection = connection,
+				Backend = createdSession,
+				BackendName = backendConfig.Name,
+				CommandRouter = new BackendCommandRouter(),
+				CommandManager = CommandManager,
+				BackendSwitcher = Switcher,
+				Activation = activation,
+				Failover = Failover,
+				JoinFailover = JoinFailover
+			});
+			// Handler first, read loop second (Java's initSession ordering).
+			createdSession.StartReading();
+			Logger.Info($"Backend {backendConfig.Name}: NetherNet connection established; requesting network settings.");
+		}
+		catch (Exception exception)
+		{
+			// onFailure must run anyway - it is the only report the caller gets, and skipping it
+			// for the most ordinary failure of all ("the backend is down") leaves a player stuck.
+			activation.OnFailure(createdSession, new InvalidOperationException(
+				"Unable to connect to backend " + backendConfig.Address, exception));
+			throw new InvalidOperationException("Unable to connect to backend " + backendConfig.Address, exception);
+		}
+
+		BackendSession backend = createdSession!;
+		backend.SendPacket(new RequestNetworkSettingsPacket
+		{
+			ClientNetworkVersion = (int)global::Protocol.ProtocolVersion.VERSION
+		});
+	}
+
+	private NetherNetConnection Dial(IPEndPoint address, NetherNet.Identity identity)
+	{
+		string host = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+			? "[" + address.Address + "]"
+			: address.Address.ToString();
+		string url = $"http://{host}:{address.Port}";
+		var client = new NetherNet.Endpoint.Client(new NetherNet.Endpoint.ClientConfig
+		{
+			Logger = message => Logger.Info($"[Proxy To Server] {message}"),
+		});
+		var dialer = new NetherNet.Dialer
+		{
+			DisableTrickleICE = true,
+			Log = message => Logger.Info($"[Proxy To Server] {message}"),
+			Credentials = _ => Task.FromResult<NetherNet.Credentials?>(ProxyServer.Config.NetherNet.ToCredentials()),
+			Identity = identity,
+		};
+		// Java set RAK_CONNECT_TIMEOUT from switch.connectTimeoutMillis (default 5000ms); without
+		// it a dead backend costs the transport's full session timeout per attempt, which halves
+		// the number of tries that fit inside the /server retry window.
+		using var timeout = new CancellationTokenSource(
+			TimeSpan.FromMilliseconds(ProxyServer.Policy.BackendSwitch.ConnectTimeoutMillis));
+		NetherNet.Conn conn = dialer.DialContextAsync(timeout.Token, url, client).GetAwaiter().GetResult();
+		return new NetherNetConnection(conn);
+	}
+
+	private sealed record BackendProtocol(int ProtocolVersion, string? MinecraftVersion);
+
+	private BackendProtocol ResolveBackendProtocol(BackendConfig backendConfig)
+	{
+		BackendProtocolDetector.PongResult pong;
+		try
+		{
+			pong = protocolDetector.Detect(backendConfig.Address);
+		}
+		catch (Exception exception)
+		{
+			// Probing is a convenience, not a requirement: some builds answer the unconnected ping
+			// with a truncated pong that carries no version payload. Assume the backend matches the
+			// proxy rather than refusing a join we have not actually tried.
+			return AssumeSupportedProtocol(backendConfig, exception);
+		}
+
+		int protocolVersion = pong.ProtocolVersion;
+		string minecraftVersion = pong.Version;
+		if (protocolVersion != (int)global::Protocol.ProtocolVersion.VERSION)
+		{
+			throw new UnsupportedVersionPairException(
+				"Unsupported backend version "
+				+ VersionName(minecraftVersion, protocolVersion)
+				+ " on " + backendConfig.Name + "."
+			);
+		}
+		return new BackendProtocol(protocolVersion, minecraftVersion);
+	}
+
+	private static BackendProtocol AssumeSupportedProtocol(BackendConfig backendConfig, Exception cause)
+	{
+		int assumed = (int)global::Protocol.ProtocolVersion.VERSION;
+		Logger.Info(
+			$"WARNING: {backendConfig.Name} at {backendConfig.Address} did not answer the protocol probe ({cause.Message}). Assuming it speaks protocol {assumed}.");
+		return new BackendProtocol(assumed, null);
+	}
+
+	private static string VersionName(string? minecraftVersion, int protocolVersion)
+	{
+		if (string.IsNullOrWhiteSpace(minecraftVersion))
+		{
+			return "protocol " + protocolVersion;
+		}
+		return minecraftVersion + " (protocol " + protocolVersion + ")";
+	}
+
+	private static string FailureMessage(Exception exception, string fallback)
+	{
+		return exception is UnsupportedVersionPairException ? exception.Message : fallback;
+	}
+
+	private (LoginPacket Login, string OidcToken) BuildBackendLogin(
+		ProxyConnection connection,
+		BackendConfig backendConfig,
+		BackendProtocol backendProtocol
+	)
+	{
+		// Java used getHostString()+":"+port - the host exactly as configured, no reverse lookup.
+		string serverAddress = backendConfig.HostString + ":" + backendConfig.Address.Port;
+		// This build only ever talks to 1.26.10+ servers, which expect the modern OIDC token format.
+		LoginPacket backendLogin = OnlineLoginForge.Forge(
+			connection.KeyPair,
+			connection.ClientLogin,
+			backendProtocol.MinecraftVersion,
+			serverAddress,
+			ProxyServer.MimicIdentity,
+			out string oidcToken
+		);
+		return (backendLogin, oidcToken);
+	}
+
+	/// <summary>
+	/// The NetherNet identity presented to the backend. A genuine client always asserts one, and a
+	/// backend in online mode answers an offer without one with ErrorCodeIdentityNotAllowed (37),
+	/// so the offer must carry the same token the Login packet does.
+	/// </summary>
+	private static NetherNet.Identity BuildNetherNetIdentity(ProxyConnection connection, string oidcToken)
+	{
+		return new NetherNet.Identity
+		{
+			PrivateKey = connection.KeyPair.Signer,
+			Token = oidcToken,
+			Domain = "https://authorization.franchise.minecraft-services.net"
+		};
 	}
 }

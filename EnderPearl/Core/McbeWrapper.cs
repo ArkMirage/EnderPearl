@@ -1,28 +1,27 @@
 using System;
 
-namespace EnderPearl.Core
+namespace EnderPearl.Core;
+
+public class McbeWrapper
 {
-	public class McbeWrapper
+	public ReadOnlyMemory<byte> payload;
+
+	public virtual int PacketId { get; }
+
+	public ReadOnlyMemory<byte> bytes { get; set; }
+
+	public void Decode(ReadOnlyMemory<byte> data)
 	{
-		public ReadOnlyMemory<byte> payload;
+		bytes = data;
+		payload = data;
+	}
 
-		public virtual int PacketId { get; }
-
-		public ReadOnlyMemory<byte> bytes { get; set; }
-
-		public void Decode(ReadOnlyMemory<byte> data)
+	public ReadOnlyMemory<byte> Encode()
+	{
+		if (bytes.IsEmpty)
 		{
-			bytes = data;
-			payload = data;
+			bytes = payload;
 		}
-
-		public ReadOnlyMemory<byte> Encode()
-		{
-			if (bytes.IsEmpty)
-			{
-				bytes = payload;
-			}
-			return bytes;
-		}
+		return bytes;
 	}
 }
