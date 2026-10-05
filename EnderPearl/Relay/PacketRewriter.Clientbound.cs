@@ -18,9 +18,6 @@ public sealed partial class PacketRewriter
 	{
 		if (packet is StartGamePacket startGame)
 		{
-			// StartGame.RuntimeID is deliberately absent from the chain below: SyncDefinitionState records
-			// it as the backend's local-player id and swaps in the client's own. Rewriting it here would
-			// undo that handoff.
 			startGame.InvalidateWireCache();
 			return packet;
 		}

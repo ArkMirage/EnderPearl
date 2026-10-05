@@ -172,7 +172,6 @@ public sealed class ProxyConnection
 				newBackend.SetDisconnectClientOnClose(true);
 			}
 		}
-		ReleaseDeferred(releasedWorldState);
 	}
 
 	public BackendSession? ReplaceBackend(string name, BackendSession newBackend)
@@ -201,7 +200,6 @@ public sealed class ProxyConnection
 		backendName = name;
 		backend = newBackend;
 		switchState.EndSwitchLocked();
-		ReleaseDeferred(deferred.ClearForBackendSwitch());
 		if (newBackend != null)
 		{
 			newBackend.SetDisconnectClientOnClose(true);
@@ -636,14 +634,10 @@ public sealed class ProxyConnection
 		{
 			released = deferred.ReleaseWorldState();
 		}
-		ReleaseDeferred(released);
+	
 	}
 
-	private static void ReleaseDeferred(List<IPacket> packets)
-	{
-		// The Java original released each packet's retained ByteBuf here. This codec builds plain
-		// managed objects, so there is nothing to release; the list drop is the whole job.
-	}
+
 
 	public void CloseBackend(string reason)
 	{

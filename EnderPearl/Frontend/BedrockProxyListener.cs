@@ -116,7 +116,6 @@ public sealed class BedrockProxyListener
 		int advertisedProtocol = (int)global::Protocol.ProtocolVersion.VERSION;
 		Logger.Info(
 			$"EnderPearl listening on {listen.Address}:{listen.Port} as '{ProxyServer.Config.Motd}' for Bedrock protocol {advertisedProtocol}, "
-			+ $"backend protocol auto-detected. "
 			+ $"Backend placeholder: {ProxyServer.Config.Backend.Name} {ProxyServer.Config.Backend.Address}.");
 		console.Start();
 	}
